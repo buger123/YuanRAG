@@ -1,0 +1,225 @@
+"""Regression tests for the ``intent_analysis`` node.
+
+v2.0 — ReAct rewrite's pre-flight classifier. Three jobs:
+
+1. Classify intent into one of {greeting, summary, qa_complex}.
+2. Cheap typo-correction (``corrected_query``).
+3. Time-need flag (``needs_current_time``) so the ReAct prompt
+   injects a get_current_time hint for "今天天气"-style queries.
+
+These tests pin the three fast-path regexes + the time-need
+detector. The LLM structured-output path is exercised end-to-end
+in verify_v2.0.py (no LLM in the test env).
+"""
+from __future__ import annotations
+
+import pytest
+
+
+# ---------------------------------------------------------------------------
+# Greeting fast-path
+# ---------------------------------------------------------------------------
+
+
+def test_greeting_fast_path_for_hi():
+    from src.agent.legacy_helpers.greeting import _is_obvious_greeting
+    from src.agent.nodes.intent_analysis import _query_needs_time
+
+    assert _is_obvious_greeting("hi") is True
+    assert _is_obvious_greeting("hello") is True
+    assert _is_obvious_greeting("你好") is True
+
+
+def test_greeting_fast_path_for_identity_question():
+    """v1.1.3 — "你是谁" / "who are you" must short-circuit (no retrieval)."""
+    from src.agent.legacy_helpers.greeting import _is_obvious_greeting
+
+    assert _is_obvious_greeting("你是谁") is True
+    assert _is_obvious_greeting("who are you") is True
+
+
+def test_greeting_fast_path_for_thanks():
+    from src.agent.legacy_helpers.greeting import _is_obvious_greeting
+
+    assert _is_obvious_greeting("谢谢") is True
+    assert _is_obvious_greeting("thanks") is True
+
+
+def test_greeting_fast_path_does_not_match_complex():
+    from src.agent.legacy_helpers.greeting import _is_obvious_greeting
+
+    assert _is_obvious_greeting("今天天气怎么样") is False
+    assert _is_obvious_greeting("总结一下这份文档") is False
+    assert _is_obvious_greeting("what's the Q3 revenue") is False
+
+
+# ---------------------------------------------------------------------------
+# Summary fast-path
+# ---------------------------------------------------------------------------
+
+
+def test_summary_fast_path_for_summarize_chinese():
+    """v1.1.x — summary regex still hits '总结一下这个文档' / '概括全文'."""
+    from src.agent.nodes.retrieve import _looks_like_summary_intent
+
+    assert _looks_like_summary_intent("总结一下这个文档") is True
+    assert _looks_like_summary_intent("概括全文") is True
+
+
+def test_summary_fast_path_for_summarize_english():
+    """v2.0.29.4 (Phase 4 PR-1) — English summary patterns were
+    intentionally REMOVED from the regex.
+
+    Pre-PR-1: ``summarize this document`` matched the unanchored
+    English patterns (``summari[sz]e|overview|gist|tl;?dr|...``)
+    and fired the summary bulk path.
+
+    Post-PR-1: the regex is Chinese-only AND start-anchored
+    (``^(?:总结|摘要|概括|归纳|概述|总览|全文|整篇|介绍|讲讲|
+    讲一下|说说|说一下|讲讲内容|主要内容|列一下|列出来|
+    分析一下|解释一下|解释下)``). English summary requests like
+    ``summarize this document`` fall through to the normal
+    embed → hybrid → rerank path, which is the documented intent
+    of PR-1 #4 (test ``test_summary_intent_re_ignores_definitional_qa``
+    pins the Chinese-only rule with explicit English cases).
+
+    The rationale is in the PR-1 plan: removing English patterns
+    reduces false positives (the OLD regex would fire on mid-sentence
+    mentions like ``"what is the summary of this chapter"`` because
+    it was unanchored). A future PR can add English patterns back
+    via a separate, intentionally designed matcher (e.g.
+    spaCy-based intent detection) — but Phase 4 PR-1 deliberately
+    ships without them.
+    """
+    from src.agent.nodes.retrieve import _looks_like_summary_intent
+
+    # English summary requests now fall through to hybrid+rerank.
+    assert _looks_like_summary_intent("summarize this document") is False
+    assert _looks_like_summary_intent("give me an overview") is False
+    # Mid-sentence English summary mentions also no longer fire
+    # (the OLD unanchored regex would have matched these).
+    assert _looks_like_summary_intent("what is the summary of this") is False
+
+
+def test_summary_fast_path_does_not_match_retrieval():
+    from src.agent.nodes.retrieve import _looks_like_summary_intent
+
+    assert _looks_like_summary_intent("what is the Q3 revenue") is False
+    assert _looks_like_summary_intent("Q3营收是多少") is False
+
+
+# ---------------------------------------------------------------------------
+# Time-need detection (cheap regex, conservative bias True)
+# ---------------------------------------------------------------------------
+
+
+def test_time_need_matches_chinese_recency():
+    from src.agent.nodes.intent_analysis import _query_needs_time
+
+    assert _query_needs_time("今天天气怎么样") is True
+    assert _query_needs_time("昨天的新闻") is True
+    assert _query_needs_time("最新的股价") is True
+    assert _query_needs_time("最近有什么新闻") is True
+
+
+def test_time_need_matches_english_recency():
+    from src.agent.nodes.intent_analysis import _query_needs_time
+
+    assert _query_needs_time("what's the latest news") is True
+    assert _query_needs_time("today's weather") is True
+    assert _query_needs_time("stock price yesterday") is True
+
+
+def test_time_need_matches_time_of_day():
+    """'几点' / '几号' must trigger even without an explicit
+    recency word. English 'what time' doesn't currently match
+    (the regex focuses on the canonical Chinese recency markers
+    + English recency tokens); the LLM still has access to the
+    time tool via the bind_tools surface if it decides to call it."""
+    from src.agent.nodes.intent_analysis import _query_needs_time
+
+    assert _query_needs_time("现在几点了") is True
+    assert _query_needs_time("今天是几号") is True
+    # Note: 'what time is it' is NOT in the regex (English time-of-day
+    # markers aren't enumerated) — only English recency words hit.
+
+
+def test_time_need_does_not_match_eternal_questions():
+    """Pure-knowledge questions (no recency marker) should NOT
+    trigger the time hint — saves tool calls + avoids polluting
+    the prompt with irrelevant clock data."""
+    from src.agent.nodes.intent_analysis import _query_needs_time
+
+    assert _query_needs_time("什么是相对论") is False
+    assert _query_needs_time("project Q3 revenue") is False
+    assert _query_needs_time("Python怎么用") is False
+
+
+def test_time_need_handles_empty_query():
+    """Defensive — empty / None-ish queries never match."""
+    from src.agent.nodes.intent_analysis import _query_needs_time
+
+    assert _query_needs_time("") is False
+
+
+# ---------------------------------------------------------------------------
+# intent_analysis node — fast-path returns
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_intent_analysis_greeting_no_llm():
+    """Greeting fast-path must NOT invoke the LLM (cheapest path).
+
+    The function yields immediately with intent='greeting' when
+    _is_obvious_greeting hits. If a future refactor accidentally
+    always invokes the LLM, this test fails (no model in test env).
+
+    v2.0.22 (Item 7 Step 5) — ``step_count`` is auto-injected by
+    ``merge()`` rather than returned by the node. We assert that
+    path here so a regression in merge() is caught.
+
+    v2.0.22 (Item 7 Step 6) — node is async-gen: drive with
+    ``async for`` and collect the ``__delta__`` payload.
+    """
+    from src.agent.fsm import merge
+    from src.agent.nodes.intent_analysis import intent_analysis
+    from unittest.mock import patch
+
+    state = {"step_count": 0, "current_query": "hi"}
+    delta: dict = {}
+    with patch("src.agent.nodes.intent_analysis.build_cheap_model") as mock_build:
+        async for kind, payload in intent_analysis(state):
+            if kind == "__delta__":
+                delta = payload
+                break
+
+    assert mock_build.call_count == 0
+    assert delta["intent"] == "greeting"
+    assert delta["needs_current_time"] is False
+    # step_count isn't in the delta anymore; merge() adds it.
+    assert "step_count" not in delta
+    merged = merge(state, delta)
+    assert merged["step_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_intent_analysis_summary_no_llm():
+    """Summary fast-path also skips the LLM.
+
+    v2.0.22 (Item 7 Step 6) — drive the async-gen via ``async for``.
+    """
+    from src.agent.nodes.intent_analysis import intent_analysis
+    from unittest.mock import patch
+
+    state = {"current_query": "总结一下这个文档"}
+    delta: dict = {}
+    with patch("src.agent.nodes.intent_analysis.build_cheap_model") as mock_build:
+        async for kind, payload in intent_analysis(state):
+            if kind == "__delta__":
+                delta = payload
+                break
+
+    assert mock_build.call_count == 0
+    assert delta["intent"] == "summary"
+    assert delta["needs_current_time"] is False

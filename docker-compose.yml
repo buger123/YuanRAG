@@ -1,0 +1,15 @@
+services:
+  rag:
+    build: .
+    container_name: rag-assistant
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - rag-data:/data
+    environment:
+      - RAG_LOG_LEVEL=INFO
+    restart: unless-stopped
+
+volumes:
+  rag-data:
+    name: rag_assistant_data

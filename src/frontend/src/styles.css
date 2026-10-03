@@ -1,0 +1,2393 @@
+/* ============================================================
+   Yuan RAG — design tokens (light, blue-accented, elegant)
+
+   Reference: DeepSeek / Doubao / Kimi style — clean light
+   surfaces, generous whitespace, blue as the single hue, subtle
+   shadows for depth instead of color overlays. Drop the previous
+   triadic indigo-purple-pink scheme in favor of a single
+   "blue + white + paper" palette that reads fresh and elegant.
+   ============================================================ */
+:root {
+  /* Surfaces — paper-white base with subtle cool undertones. The
+     chat pane is the brightest "page" so it feels like the focus,
+     the sidebar is a hair darker for hierarchy. */
+  --bg: #f6f8fb;
+  --bg-panel: #ffffff;
+  --bg-panel-2: #f1f4f9;
+  --bg-hover: #eef2f7;
+  --bg-elev: #ffffff;
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+
+  /* Text — high-contrast but never pure black; a soft slate that
+     still reads as "ink" without being harsh on a white surface. */
+  --text: #1f2937;
+  --text-dim: #6b7280;
+  --text-muted: #9ca3af;
+
+  /* Single accent — a calm blue. Used for primary actions, active
+     states, focus rings, brand title. No secondary hue, no warm
+     complement. */
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-strong: #1e40af;
+  --accent-soft: #eff6ff;
+  --accent-softer: #f0f7ff;
+  --accent-border: #bfdbfe;
+  --gradient-primary: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+
+  /* Status — kept the standard modern palette, lighter / cleaner. */
+  --success: #10b981;
+  --success-soft: #ecfdf5;
+  --warning: #f59e0b;
+  --warning-soft: #fffbeb;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+
+  /* Shape — slightly tighter radii so cards feel precise. */
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-lg: 14px;
+
+  /* Elevation — softer shadows for a "paper on paper" feel. */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.08);
+  --shadow-focus: 0 0 0 3px rgba(37, 99, 235, 0.18);
+
+  /* Chinese-friendly font stack. */
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC",
+    "WenQuanYi Micro Hei", Roboto, "Helvetica Neue", sans-serif;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+button {
+  font-family: inherit;
+}
+
+code {
+  font-family: "JetBrains Mono", "Fira Code", "Cascadia Code",
+    Consolas, "Source Code Pro", "Microsoft YaHei", monospace;
+  font-size: 0.9em;
+}
+
+/* ============================================================
+   App shell
+   ============================================================ */
+.app {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  grid-template-rows: 1fr;
+  height: 100vh;
+}
+
+/* QW #10: inline banner for WebSocket disconnects. Pinned to the
+   top of the app shell, full width, single line of calm warning
+   amber — not the loud red of an error toast. The icon sits at
+   the left as a non-decorative aria-hidden glyph so screen
+   readers announce only the message text. ``justify-content:
+   space-between`` keeps the dismiss button at the far right
+   regardless of message length. */
+.connection-error-banner {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--warning-soft);
+  color: var(--warning-text);
+  border-bottom: 1px solid var(--warning-border);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.connection-error-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.connection-error-message {
+  flex: 1;
+  /* The banner can wrap on narrow viewports — keep the message
+     from overflowing past the dismiss button. */
+  min-width: 0;
+}
+.connection-error-dismiss {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  line-height: 1;
+  color: inherit;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.connection-error-dismiss:hover {
+  background: rgba(120, 53, 15, 0.08);
+}
+.connection-error-dismiss:focus-visible {
+  outline: 2px solid var(--warning-border);
+  outline-offset: 2px;
+}
+/* v2.0.25 P0-F2 — retry affordance for the connection-error banner.
+   Sits between the message and the dismiss ``×`` so the dismiss
+   stays the rightmost element regardless of locale. The button uses
+   the warning palette so it reads as "same banner, same context"
+   rather than "different page". */
+.connection-error-retry {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--warning-border);
+  color: #fff;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.connection-error-retry:hover {
+  background: #d97706;
+}
+.connection-error-retry:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* v2.0.25.1 P0-extension — sidebar-scoped inline error banner for
+   failed destructive actions (deleteDocument / deleteSession). PR-6
+   replaces this with the proper toast system. Mirrors the visual
+   language of the connection-error banner (warning palette + dismiss
+   button) so the user learns the affordance once and applies it
+   everywhere. */
+.sidebar-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--warning-soft);
+  color: var(--warning-text);
+  border-bottom: 1px solid var(--warning-border);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.sidebar-error-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.sidebar-error-message {
+  flex: 1;
+  min-width: 0;
+}
+.sidebar-error-dismiss {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  line-height: 1;
+  color: inherit;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.sidebar-error-dismiss:hover {
+  background: rgba(120, 53, 15, 0.08);
+}
+.sidebar-error-dismiss:focus-visible {
+  outline: 2px solid var(--warning-border);
+  outline-offset: 2px;
+}
+
+/* v2.0.26.3 (PR-6) — toast notification system.
+   - container is fixed bottom-right on desktop, top-center on mobile
+     (the @media block at the end of the file repositions it)
+   - kind variants pick up the existing design tokens so dark mode
+     (PR-5) works without any per-toast overrides
+   - dismiss button matches the connection-error-banner style so the
+     affordance is consistent across the app */
+.toast-container {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  max-width: min(420px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  animation: toast-pop-in 180ms ease-out;
+}
+.toast-error {
+  border-color: var(--warning-border);
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+.toast-success {
+  border-color: var(--success);
+  background: rgba(16, 185, 129, 0.08);
+  color: var(--success);
+}
+.toast-warning {
+  border-color: var(--warning-border);
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+.toast-info {
+  border-color: var(--border);
+  background: var(--bg-panel);
+  color: var(--text);
+}
+.toast-icon {
+  font-weight: 600;
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+}
+.toast-message {
+  flex: 1;
+  word-break: break-word;
+}
+.toast-dismiss {
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  color: inherit;
+  min-width: 28px;
+  min-height: 28px;
+  flex-shrink: 0;
+}
+.toast-dismiss:hover {
+  background: rgba(15, 23, 42, 0.08);
+}
+.toast-dismiss:focus-visible {
+  outline: 2px solid var(--warning-border);
+  outline-offset: 1px;
+}
+@keyframes toast-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+/* On mobile, flip the toast container to top-center so it doesn't
+   obscure the chat composer (which sits at the bottom on narrow
+   viewports — PR-5 made the composer sticky-bottom there). */
+@media (max-width: 768px) {
+  .toast-container {
+    bottom: auto;
+    top: 12px;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    max-width: calc(100vw - 24px);
+  }
+}
+
+/* Sidebar — paper-white card on a slightly cooler page background.
+   No color washes (the previous indigo/pink tints were too loud
+   for the new aesthetic). */
+.sidebar {
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* v2.0.28.7 — mobile drawer backdrop. Rendered unconditionally by
+   Sidebar.tsx, so the base styles MUST NOT live inside the @media
+   block: at desktop width the rule wouldn't apply, the element would
+   fall back to ``display: block``, and as a grid child of ``.app`` it
+   would steal row 1 col 1 (pushing the sidebar into col 2 and the
+   chat-pane into row 2). Keeping this rule at the top level makes the
+   backdrop ``position: fixed`` at every viewport — invisible
+   (``opacity: 0`` + ``pointer-events: none``) on desktop because
+   ``drawerOpen`` is always false there, and clickable on mobile when
+   ``drawerOpen`` toggles the ``.is-open`` modifier (see @media). */
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  z-index: 89;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease-out;
+}
+
+.sidebar-brand {
+  padding: 16px 16px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-brand-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  flex: 1;
+  color: var(--text);
+}
+
+.sidebar-icon-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: 16px;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.sidebar-icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+  border-color: var(--border);
+}
+
+.sidebar-actions {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-new-chat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  justify-content: flex-start;
+}
+
+.sidebar-new-chat-plus {
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 400;
+  margin-right: 2px;
+}
+
+/* Upload button — light dashed border that fills with the soft
+   blue accent on hover. Cleaner than the previous warm-coral
+   version. */
+.sidebar-upload-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-radius: var(--radius);
+  border: 1.5px dashed var(--border-strong);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.sidebar-upload-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.sidebar-upload-btn.dragging {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.sidebar-upload-icon {
+  font-size: 16px;
+}
+
+.sidebar-section {
+  padding: 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+.sidebar-sessions {
+  flex: 1 1 0;
+  overflow-y: auto;
+}
+
+.sidebar-documents {
+  border-top: 1px solid var(--border);
+  max-height: 38vh;
+  overflow-y: auto;
+  background: var(--bg-panel-2);
+}
+
+.section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  letter-spacing: 0.8px;
+  padding: 4px 4px 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.section-count {
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.empty-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 12px 8px;
+  text-align: center;
+  font-style: italic;
+}
+
+/* ============================================================
+   Session items (sidebar)
+   ============================================================ */
+.session-item {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid transparent;
+  transition: all 0.12s;
+}
+.session-item:hover {
+  background: var(--bg-hover);
+}
+.session-item.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
+.session-item .title {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.session-item-title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.session-item-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.session-item-delete {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  opacity: 0;
+  transition: all 0.12s;
+}
+.session-item:hover .session-item-delete,
+.session-item.active .session-item-delete {
+  opacity: 1;
+}
+.session-item-delete:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* ============================================================
+   Document items (sidebar)
+   ============================================================ */
+.doc-item {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-panel);
+}
+.doc-item:hover {
+  border-color: var(--accent-border);
+}
+.doc-item .filename {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.doc-item-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.doc-item-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.doc-item-status-empty {
+  background: var(--warning-soft);
+  color: var(--warning);
+  border-color: var(--warning);
+}
+.doc-item-status-failed {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.doc-item-status-pending {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+.doc-item-status-spinner {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--accent-border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: chat-header-spin 0.8s linear infinite;
+}
+.doc-item-delete {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  transition: all 0.12s;
+}
+.doc-item-delete:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* ============================================================
+   Upload-progress items — shown in the documents section while
+   a file is being parsed / indexed. Distinct from ``.doc-item``
+   via a left accent stripe + a small spinner + status text.
+   ============================================================ */
+.upload-progress {
+  padding: 8px 10px 8px 12px;
+  border: 1px solid var(--accent-border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--accent-softer);
+}
+.upload-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.upload-progress-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--accent-border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: chat-header-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+.upload-progress-filename {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+}
+.upload-progress-status {
+  font-size: 11px;
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 20px;
+}
+.upload-progress-bar {
+  height: 2px;
+  background: var(--accent-border);
+  border-radius: 1px;
+  overflow: hidden;
+  margin-top: 2px;
+}
+.upload-progress-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 1px;
+  transition: width 0.3s ease;
+  /* Indeterminate: a 30 % wide pill sliding left → right. Stops
+     the moment the chunk count is known, at which point we replace
+     the animation with a fixed-width bar driven by chunk_count. */
+  animation: upload-progress-indet 1.4s ease-in-out infinite;
+}
+@keyframes upload-progress-indet {
+  0% {
+    margin-left: 0;
+    width: 30%;
+  }
+  50% {
+    margin-left: 60%;
+    width: 30%;
+  }
+  100% {
+    margin-left: 100%;
+    width: 30%;
+  }
+}
+
+/* ============================================================
+   Chat pane — header / messages / input
+   ============================================================ */
+.chat-pane {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  min-height: 0;
+}
+
+.chat-header {
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--bg-panel);
+}
+.chat-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.chat-header-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+.chat-header-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 400;
+  margin-left: 4px;
+}
+.chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.chat-header-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+.chat-header-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: chat-header-spin 0.8s linear infinite;
+}
+@keyframes chat-header-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.btn-thinking-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 6px 12px;
+  transition: all 0.15s;
+}
+.btn-thinking-toggle[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.chat-messages::-webkit-scrollbar {
+  width: 10px;
+  background: transparent;
+}
+.chat-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat-messages::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 5px;
+}
+.chat-messages::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+.sidebar::-webkit-scrollbar,
+.sidebar-section::-webkit-scrollbar {
+  width: 8px;
+  background: transparent;
+}
+.sidebar::-webkit-scrollbar-track,
+.sidebar-section::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar::-webkit-scrollbar-thumb,
+.sidebar-section::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+.sidebar::-webkit-scrollbar-thumb:hover,
+.sidebar-section::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Empty chat state — clean hero, no glow. The previous floating
+   purple glow was too "vibrant" for the new aesthetic. */
+.chat-empty {
+  margin: 60px auto;
+  max-width: 480px;
+  text-align: center;
+  color: var(--text-dim);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.chat-empty-icon {
+  /* Subtle drop-shadow under the logo so the hero feels grounded. */
+  filter: drop-shadow(0 4px 16px rgba(37, 99, 235, 0.12));
+}
+.chat-empty-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+.chat-empty-hint {
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--text-dim);
+}
+
+/* Shown instead of ``.chat-empty`` while App is fetching the thread's
+   persisted history. Visually lighter than the empty state (no logo,
+   no hint copy) so the user understands this is a transient wait,
+   not a permanent empty thread — they just clicked a sidebar entry
+   and the network round-trip is in flight. The spinner is bigger
+   than the header's 12 px one because this is the *primary* affordance
+   in the pane at that moment, not a status chip. */
+.chat-loading {
+  margin: 80px auto;
+  max-width: 360px;
+  text-align: center;
+  color: var(--text-dim);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  font-size: 13px;
+}
+.chat-loading-spinner {
+  display: block;
+  width: 24px;
+  height: 24px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: chat-loading-spin 0.8s linear infinite;
+}
+@keyframes chat-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.chat-loading-text {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+/* ============================================================
+   Messages
+   ============================================================ */
+.message {
+  max-width: 80%;
+  padding: 12px 16px;
+  border-radius: var(--radius-lg);
+  line-height: 1.65;
+  word-wrap: break-word;
+  animation: message-fade-in 0.18s ease-out;
+}
+@keyframes message-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.message.user {
+  background: var(--gradient-primary);
+  color: white;
+  align-self: flex-end;
+  border-bottom-right-radius: 4px;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.18);
+  white-space: pre-wrap;
+}
+
+/* v2.0.3 — Timestamp legibility fix on the blue user bubble.
+   The base ``.message-timestamp`` rule is
+       color: var(--text-dim, #888); opacity: 0.75;
+   which renders ≈ #a8b5c8 at 75% alpha — essentially invisible on
+   the saturated blue gradient of ``.message.user``. The user's
+   first complaint was "看不到时间戳" (timestamp invisible).
+
+   We override ALL FOUR properties the base rule sets:
+     * color        → near-opaque white for max contrast on blue
+     * opacity      → 1 (must override base 0.75 — otherwise color
+                       alpha is multiplied by 0.75 and the result is
+                       still too dim)
+     * font-size    → 12px (base 11px is too small on busy bubbles)
+     * font-weight  → 500 (slight emphasis so the time reads even
+                       when the bubble is long)
+   Without the opacity override the final alpha = 0.95 × 0.75 ≈ 0.71
+   — still washed out on bright blue. Bumping font-size + weight
+   gives the timestamp visual weight without changing the layout. */
+.message.user .message-timestamp {
+  color: rgba(255, 255, 255, 0.95);
+  opacity: 1;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.message.assistant {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  align-self: flex-start;
+  border-bottom-left-radius: 4px;
+  box-shadow: var(--shadow-sm);
+}
+
+.message.error {
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  align-self: flex-start;
+}
+
+.message-text {
+  white-space: pre-wrap;
+}
+
+/* v2.0.31.0 — verbatim-extraction indicator badge. Rendered at the
+   top of an assistant bubble when ``m.sources[*].verbatim`` is true
+   (authoritative signal from the backend ``react_generate_extractive``
+   node) OR the thread's ``highPrecision==="on"`` toggle is set by
+   the user. Sits as a small accent-tinted pill above the markdown
+   body so the user can verify at a glance that the answer was
+   synthesized in extractive mode without rewriting. ``fit-content``
+   keeps the pill snug around its content (icon + label) rather than
+   spanning the full bubble width. ``max-width: 100%`` prevents the
+   pill from overflowing on narrow bubbles. */
+.verbatim-lock-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 0 8px;
+  padding: 3px 9px 3px 7px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  box-shadow: var(--shadow-sm);
+}
+.verbatim-lock-indicator > span:last-child {
+  /* The label span — keep on a single line so the pill stays
+     compact on narrow bubbles; ``text-overflow: ellipsis`` is a
+     last-resort guard for ultra-narrow viewports. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* v2.0.31.0 — shared lock icon styling. Used both inside the
+   bubble indicator pill and as the inline glyph on the
+   "开启" / "on" segmented button. Slightly larger than the label
+   text so the glyph reads as a visual anchor. ``aria-hidden`` is
+   set by the React component since the surrounding label / title
+   already conveys the meaning to screen readers. */
+.verbatim-lock-icon {
+  display: inline-block;
+  font-size: 12px;
+  line-height: 1;
+  /* Subtle vertical nudge so emoji baseline aligns with the
+     surrounding Latin / CJK text without descender clipping. */
+  vertical-align: -1px;
+}
+
+/* ============================================================
+   Markdown body — assistant answer structure
+   ============================================================ */
+.markdown-body {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text);
+}
+.markdown-body > *:first-child {
+  margin-top: 0;
+}
+.markdown-body > *:last-child {
+  margin-bottom: 0;
+}
+.markdown-body p {
+  margin: 0 0 10px;
+}
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+  margin: 16px 0 8px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text);
+}
+.markdown-body h1 {
+  font-size: 18px;
+}
+.markdown-body h2 {
+  font-size: 16px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+.markdown-body h3 {
+  font-size: 15px;
+}
+.markdown-body h4 {
+  font-size: 14px;
+}
+.markdown-body ul,
+.markdown-body ol {
+  margin: 0 0 10px;
+  padding-left: 22px;
+}
+.markdown-body li {
+  margin: 4px 0;
+}
+.markdown-body li > p {
+  margin: 4px 0;
+}
+.markdown-body code {
+  background: var(--bg-panel-2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  color: var(--accent-code);
+  border: 1px solid var(--border);
+}
+.markdown-body pre {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  overflow-x: auto;
+  margin: 0 0 10px;
+  line-height: 1.5;
+}
+.markdown-body pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.85em;
+  color: var(--text);
+  border: none;
+}
+.markdown-body blockquote {
+  border-left: 3px solid var(--accent);
+  margin: 0 0 10px;
+  padding: 4px 0 4px 12px;
+  color: var(--text-dim);
+  background: var(--accent-softer);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.markdown-body a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: rgba(37, 99, 235, 0.4);
+  text-underline-offset: 2px;
+}
+.markdown-body a:hover {
+  color: var(--accent-hover);
+  text-decoration-color: var(--accent-hover);
+}
+.markdown-body table {
+  border-collapse: collapse;
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+}
+.markdown-body th {
+  background: var(--bg-panel-2);
+  font-weight: 600;
+  color: var(--text);
+}
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 14px 0;
+}
+.markdown-body strong {
+  font-weight: 600;
+  color: var(--text);
+}
+.markdown-body em {
+  font-style: italic;
+}
+
+/* ============================================================
+   Citation chips — inline (in markdown) + row (below message)
+   ============================================================ */
+.citation-chip {
+  /* The chip is rendered as a real ``<button>`` (a11y QW #5) so we
+     reset browser-default button styles before applying our own
+     palette. Without this, Chrome/Firefox paint a beige background
+     and a 2px outset border that fights our ``--accent-soft`` ring. */
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  line-height: inherit;
+  display: inline-block;
+  padding: 1px 6px;
+  margin: 0 1px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.9em;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s,
+    transform 0.15s;
+  user-select: text;
+  text-decoration: none;
+  vertical-align: baseline;
+}
+.citation-chip:hover {
+  background: var(--accent-softer);
+  border-color: var(--accent);
+  /* Subtle lift on hover so the user sees the chip react to the
+     pointer — the cursor alone isn't always obvious for inline
+     spans, especially on the subtle blue background. */
+  box-shadow: 0 1px 4px rgba(37, 99, 235, 0.18);
+  transform: translateY(-1px);
+}
+
+/* Keyboard focus ring for the chip-as-button (QW #5). Only fires on
+   keyboard navigation, not mouse clicks, so the visual stays calm
+   for mouse-driven workflows. ``:focus-visible`` is the modern,
+   accessibility-correct pseudo for this. */
+.citation-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Brief flash animation when the chip is clicked (toggled by
+   ``App.tsx``'s ``rag:citation-click`` listener). The class is added
+   for ~2 s so even a single click produces clearly visible feedback
+   across both the inline answer chip and the matching chip in the
+   bottom citation row. We use a keyframe animation rather than a
+   transition so re-clicking during the 2 s window restarts the
+   effect (the App.tsx handler forces a reflow before re-adding the
+   class). */
+@keyframes citation-highlight-pulse {
+  0% {
+    background: var(--accent);
+    color: #ffffff;
+    border-color: var(--accent-strong);
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.55);
+    transform: scale(1);
+  }
+  35% {
+    background: var(--accent);
+    color: #ffffff;
+    border-color: var(--accent-strong);
+    box-shadow: 0 0 0 8px rgba(37, 99, 235, 0);
+    transform: scale(1.08);
+  }
+  100% {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: transparent;
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+    transform: scale(1);
+  }
+}
+.citation-chip.is-highlighted {
+  animation: citation-highlight-pulse 1.6s ease-out;
+}
+
+.citation-chip-link {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 11px;
+  border: 1px solid var(--accent-border);
+  transition: background 0.15s, border-color 0.15s;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.citation-chip-link:hover {
+  background: var(--accent-softer);
+  border-color: var(--accent);
+}
+
+.citation-row {
+  margin-top: 10px;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* ============================================================
+   Message flags (web-searched / doc-referenced / grounding)
+   ============================================================ */
+.message-flag {
+  font-size: 11px;
+  margin-top: 8px;
+  opacity: 0.85;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* When both flags render (v1.1.13 complementary search) the doc
+   line comes first; ``+message-flag`` adds 8px above each, but the
+   second one in the same row gets no extra top margin. */
+.message-flag + .message-flag {
+  margin-top: 2px;
+}
+.message-flag-web {
+  color: var(--accent);
+}
+.message-flag-doc {
+  color: var(--text-dim);
+}
+.message-flag-grounding {
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
+/* ============================================================
+   v2.0 — Tool-call cards (ReAct agent visualization)
+   ============================================================
+   Each card represents one tool invocation the agent made during
+   its reasoning loop. Cards are collapsible (default collapsed
+   so a 4-tool chain doesn't dominate the message); expand to
+   see raw args + result.
+   ============================================================ */
+.tool-call-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 12px 0;
+}
+
+.tool-call-card {
+  border: 1px solid var(--border, #e0e0e0);
+  border-radius: 6px;
+  padding: 0;
+  font-size: 13px;
+  background: var(--bg, #fafafa);
+  overflow: hidden;
+}
+
+.tool-call-card.running {
+  border-color: #f0ad4e;
+  background: #fff8e1;
+}
+.tool-call-card.ok {
+  border-color: #5cb85c;
+  background: #f0fff0;
+}
+.tool-call-card.error {
+  border-color: #d9534f;
+  background: #fff0f0;
+}
+
+.tool-call-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.tool-call-card-header:hover {
+  filter: brightness(0.97);
+}
+.tool-call-card-icon {
+  font-family: monospace;
+  width: 16px;
+  text-align: center;
+}
+.tool-call-card-name {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.tool-call-card-tool-icon {
+  font-family: inherit;
+}
+.tool-call-card-step {
+  font-size: 11px;
+  color: var(--text-dim, #888);
+  margin-left: 4px;
+}
+.tool-call-card-elapsed {
+  font-size: 11px;
+  color: var(--text-dim, #888);
+  margin-left: auto;
+  padding-left: 8px;
+}
+.tool-call-card-chevron {
+  color: var(--text-dim, #888);
+  font-size: 11px;
+}
+
+.tool-call-card-body {
+  padding: 4px 10px 10px 10px;
+  border-top: 1px solid var(--border, #e0e0e0);
+}
+.tool-call-card-label {
+  font-size: 11px;
+  color: var(--text-dim, #888);
+  margin: 4px 0 2px 0;
+}
+.tool-call-card-args pre,
+.tool-call-card-result pre {
+  margin: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  max-height: 200px;
+  overflow: auto;
+  background: var(--bg-code);
+  border-radius: 4px;
+  padding: 6px 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ============================================================
+   v2.0 — Per-message timestamp
+   ============================================================ */
+.message-timestamp {
+  font-size: 11px;
+  color: var(--text-dim, #888);
+  margin-top: 6px;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+   v2.0 — Step pill (shown next to "正在思考 / 正在联网搜索")
+   ============================================================ */
+.thinking-step {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--text-dim, #888);
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+   Thinking drawer (per-message)
+   ============================================================ */
+.thinking-drawer {
+  margin-bottom: 12px;
+  border-left: 2px solid var(--accent);
+  padding: 6px 0 6px 10px;
+  background: var(--accent-softer);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.thinking-drawer-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  font-style: italic;
+}
+.thinking-drawer-chevron {
+  font-style: normal;
+  color: var(--accent);
+  font-size: 11px;
+}
+.thinking-drawer-icon {
+  font-style: normal;
+}
+.thinking-drawer-body {
+  white-space: pre-wrap;
+  margin-top: 6px;
+  font-style: italic;
+  max-height: 320px;
+  overflow-y: auto;
+  word-wrap: break-word;
+  line-height: 1.6;
+}
+
+/* ============================================================
+   Chat input (auto-growing textarea)
+   ============================================================ */
+.chat-input {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 16px 24px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  align-items: flex-end;
+}
+
+/* v2.0.31.0 — per-thread verbatim-extraction segmented toggle
+   sits on its own row above the textarea. ``flex: 0 0 100%`` makes
+   the toggle consume the full form width so the textarea + send
+   button flow into the row below; on narrow viewports this also
+   avoids the textarea being squashed by the 3 buttons side-by-side
+   (the original JSX comment already documented this intent). The
+   ``.segmented`` class — shared with SettingsDialog's theme /
+   language pickers — supplies the container pill background /
+   border / radius; ``.segmented-option`` supplies the per-button
+   active-state styling via ``data-active="true"`` so the look
+   stays consistent across all segmented controls in the app.
+
+   v2.0.31.1 — the row now wraps three elements stacked vertically:
+   a visible label (so first-time users know what the toggle IS),
+   the segmented control itself, and a dynamic description that
+   updates when the user clicks each mode (so they see what the
+   CURRENT mode does without hovering). The label is the new
+   ``.high-precision-toggle-label`` element; the description is
+   ``.high-precision-toggle-description`` with ``aria-live="polite"``
+   so screen-reader users hear the description change on selection.
+   ``min-height`` on the description prevents layout shift when the
+   user toggles between modes with different hint-text lengths. */
+.high-precision-toggle-row {
+  flex: 0 0 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.high-precision-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+  letter-spacing: 0.01em;
+}
+.high-precision-toggle {
+  justify-content: flex-start;
+}
+.high-precision-toggle-description {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  /* Reserve room for the longest hint (Auto's 35-char description)
+     so toggling between modes doesn't shift the textarea below. */
+  min-height: 1.5em;
+  /* Wrap long hints to multiple rows on narrow viewports. */
+  max-width: 100%;
+  word-wrap: break-word;
+}
+.high-precision-toggle-btn {
+  font-size: 12px;
+  padding: 5px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.high-precision-toggle-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.chat-textarea {
+  flex: 1;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 11px 14px;
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.55;
+  resize: none;
+  min-height: 44px;
+  max-height: 380px;
+  overflow-y: auto;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+  box-shadow: var(--shadow-sm);
+}
+.chat-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--shadow-focus);
+}
+.chat-textarea:disabled {
+  opacity: 0.5;
+}
+.chat-textarea::-webkit-scrollbar {
+  width: 8px;
+  background: transparent;
+}
+.chat-textarea::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+.chat-textarea::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+.chat-textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+.btn-send {
+  background: var(--gradient-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  padding: 11px 22px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition:
+    filter 0.15s,
+    transform 0.05s,
+    box-shadow 0.15s;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+}
+.btn-send:hover:not(:disabled) {
+  filter: brightness(1.05);
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+}
+.btn-send:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.btn-send:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.btn-send-icon {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* QW #4: stop button shares the same shape as ``.btn-send`` but
+   uses a warm warning palette so it reads as "interrupt the
+   current action" rather than "primary action". The stop icon
+   is a filled black square (■) which is universally legible
+   regardless of language / font availability — far better than
+   "❚❚" which renders inconsistently across systems. */
+.btn-stop {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius);
+  padding: 11px 22px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn-stop:hover {
+  background: var(--warning-border);
+  color: #ffffff;
+}
+.btn-stop:focus-visible {
+  outline: 2px solid var(--warning-border);
+  outline-offset: 2px;
+}
+.btn-stop-icon {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+/* ============================================================
+   Streaming indicators
+   ============================================================ */
+.thinking {
+  font-style: italic;
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.thinking-pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: thinking-pulse 1.2s ease-in-out infinite;
+}
+@keyframes thinking-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ============================================================
+   Buttons (generic)
+   ============================================================ */
+.btn-secondary {
+  background: var(--bg-panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+.btn-secondary:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  color: var(--accent);
+}
+.btn-secondary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: white;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition:
+    filter 0.15s,
+    box-shadow 0.15s;
+}
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+}
+.btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: white;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: filter 0.15s;
+}
+.btn-danger:hover:not(:disabled) {
+  filter: brightness(1.05);
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.25);
+}
+
+/* ============================================================
+   Modals (settings / confirm / model download / key-required)
+   ============================================================ */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: backdrop-fade 0.15s ease-out;
+}
+@keyframes backdrop-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  min-width: 420px;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: var(--shadow-lg);
+  animation: modal-pop 0.18s ease-out;
+}
+@keyframes modal-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+.modal h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+}
+.modal-footnote {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.6;
+}
+
+/* Confirm dialog — destructive-action styling. */
+.modal-confirm {
+  min-width: 380px;
+  max-width: 460px;
+  text-align: left;
+}
+.modal-confirm-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-start;
+}
+.modal-confirm-title {
+  margin: 0;
+  color: var(--text);
+}
+.modal-confirm-message {
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.modal-confirm-message strong {
+  color: var(--text);
+}
+.modal-confirm-actions {
+  margin-top: 4px;
+  justify-content: flex-end;
+}
+
+/* Settings dialog specifics */
+.settings-key-banner {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1.5;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.settings-key-banner-env,
+.settings-key-banner-keyring {
+  background: var(--success-soft);
+  border: 1px solid var(--success);
+  color: var(--success);
+}
+.settings-key-banner-none {
+  background: var(--warning-soft);
+  border: 1px solid var(--warning);
+  color: var(--warning);
+}
+
+.form-row-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.settings-models-panel {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  letter-spacing: 0.8px;
+}
+.settings-model-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.modal select,
+.modal input {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+}
+.modal select:focus,
+.modal input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--shadow-focus);
+}
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* v2.0.6 P2-3 / P2-4 — segmented control used for the theme and
+   language pickers in the settings dialog. Three buttons sitting
+   inside a single rounded container; the active one flips to the
+   accent color so the user always sees which option is in effect.
+   The ``data-active`` attribute is set by the React component
+   (rather than a CSS-only ``:checked`` pattern) so we don't have
+   to wire up hidden radios. */
+.segmented {
+  display: inline-flex;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  gap: 2px;
+}
+.segmented-option {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--text-dim);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.segmented-option:hover {
+  color: var(--text);
+}
+.segmented-option[data-active="true"] {
+  background: var(--bg-panel);
+  color: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+
+/* v2.0.6 P2-3 / P2-4 — small section heading inside the settings
+   dialog. Used for the "Appearance" and "Language" rows. Smaller
+   than the dialog title so it reads as a sub-header. */
+.settings-section {
+  margin-top: 12px;
+}
+.settings-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.settings-section-title-sm {
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* Model download modal */
+.modal-download {
+  text-align: center;
+  align-items: center;
+}
+.modal-download-logo {
+  align-self: center;
+  margin-bottom: 4px;
+  filter: drop-shadow(0 4px 16px rgba(37, 99, 235, 0.15));
+}
+
+/* API key required modal */
+.modal-key-required {
+  text-align: center;
+  align-items: center;
+}
+.modal-key-required-icon {
+  font-size: 36px;
+  align-self: center;
+}
+
+/* ============================================================
+   Error message bar (inside modal)
+   ============================================================ */
+.error {
+  color: var(--danger);
+  font-size: 12px;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+}
+
+/* ============================================================
+   Legacy classes referenced elsewhere — kept for compatibility
+   ============================================================ */
+.model-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.status-dot.ready {
+  background: var(--success);
+}
+.status-dot.missing {
+  background: var(--danger);
+}
+.upload-zone {
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius);
+  padding: 16px;
+  text-align: center;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-dim);
+  transition: all 0.2s;
+}
+.upload-zone.dragging,
+.upload-zone:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.source-item {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.source-item .label {
+  font-weight: 600;
+  color: var(--accent);
+}
+.source-item .preview {
+  color: var(--text-dim);
+  font-style: italic;
+  font-size: 11px;
+}
+/* ============================================================
+   v2.0.26.2 (PR-5) — Responsive + Dark Mode foundation.
+
+   Three concerns live below in three independent @media blocks:
+
+   1. ``(max-width: 768px)`` — sidebar becomes an off-canvas drawer,
+      modal drops the 420-px min-width, touch targets jump to a
+      44x44 minimum, composer / message padding tightens for
+      one-handed phone usage.
+   2. ``(prefers-reduced-motion: reduce)`` — accessibility baseline
+      for users with vestibular sensitivity. Animations and
+      transitions collapse to ~0 ms (effectively disabled) without
+      removing them from the source (so the same CSS keeps working
+      for users who *don't* request reduced motion).
+   3. ``(prefers-color-scheme: dark)`` + :root[data-theme="dark"] —
+      dark variants of the design tokens. The ``data-theme``
+      attribute (set by ``useTheme()``) wins over the prefers-
+      color-scheme media query, so a user who picks "Light" or
+      "Dark" in SettingsDialog never has their choice overridden by
+      the OS.
+
+   Token promotions (this PR):
+   - ``--accent-code`` (#be185d)   — inline <code> color
+   - ``--bg-code``   (rgba 0,0,0,.04) — tool-call / thinking background
+   - ``--warning-text`` / ``--warning-border`` / ``--warning-soft``
+     — the three colors that used to be inline fallbacks on the
+     ``.btn-stop`` / ``.connection-error-*`` / ``.sidebar-error-banner``
+     rules. Promoting them gives them automatic dark parity.
+   ============================================================ */
+
+:root {
+  /* Token promotions — v2.0.26.2. These existed as inline literals
+     or as ``var(--token, #xxx)`` fallbacks before; promoting them
+     makes the dark-mode pass trivial. */
+  --accent-code: #be185d;
+  --bg-code: rgba(0, 0, 0, 0.04);
+  --warning-text: #78350f;
+  --warning-border: #f59e0b;
+  --warning-soft: #fef3c7;
+}
+
+/* ----------------------------------------------------------------
+   1. Mobile (≤ 768 px) — off-canvas drawer + tightened spacing.
+   ---------------------------------------------------------------- */
+@media (max-width: 768px) {
+  /* The desktop layout is a 280 px sidebar + 1fr chat pane; on
+     mobile the sidebar leaves the grid entirely and becomes an
+     off-canvas drawer controlled by App.tsx ``drawerOpen`` state. */
+  .app {
+    grid-template-columns: 1fr;
+  }
+
+  /* Sidebar drawer — hidden by default, slides in via the
+     ``is-open`` modifier. ``min(86vw, 320px)`` keeps it usable on
+     both small (320 px) and large (430 px) phones. */
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(86vw, 320px);
+    max-width: 86vw;
+    z-index: 90;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease-out;
+    border-right: 1px solid var(--border);
+    box-shadow: none;
+  }
+  .sidebar.is-open {
+    transform: translateX(0);
+    box-shadow: var(--shadow-lg);
+  }
+
+  /* Backdrop visibility. Base ``.sidebar-backdrop`` rule is now at
+     the top level (v2.0.28.7) — see comment there for why. Only the
+     ``.is-open`` modifier lives inside @media because it is only
+     meaningful on mobile where the drawer can actually open. */
+  .sidebar-backdrop.is-open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Chat header — tighter padding + smaller brand text. The
+     subtitle is dropped on mobile because 320 px wide cannot fit
+     "Yuan RAG" + subtitle + hamburger without wrapping. */
+  .chat-header {
+    padding: 12px 14px;
+  }
+  .chat-header-title {
+    font-size: 15px;
+  }
+  .chat-header-subtitle {
+    display: none;
+  }
+  .chat-header-actions {
+    gap: 8px;
+  }
+
+  /* Show the hamburger on mobile. Desktop default is ``display:
+     none`` via the dedicated rule below the @media block. */
+  .btn-hamburger {
+    display: inline-flex;
+  }
+
+  /* Message bubbles — slightly wider and tighter padding so 4
+     lines of body text still fit comfortably on a 320 px phone. */
+  .chat-messages {
+    padding: 16px 12px;
+    gap: 12px;
+  }
+  .message {
+    max-width: 92%;
+    padding: 10px 12px;
+  }
+
+  /* Composer — bottom-anchored, tightened padding, smaller send
+     button. The desktop layout already pins the input to the
+     bottom via flex; we only need to relax the padding here. */
+  .chat-input {
+    padding: 10px 12px 14px;
+    gap: 8px;
+  }
+  .btn-send,
+  .btn-stop {
+    padding: 11px 16px;
+  }
+
+  /* Modals — drop the 420 px min-width so they fit on narrow
+     screens without a horizontal scrollbar. ``calc(100vw - 24px)``
+     leaves a 12 px gutter on each side (margin handles the
+     gutter, max-width handles the upper bound). */
+  .modal,
+  .modal-confirm,
+  .modal-key-required,
+  .modal-download {
+    min-width: 0;
+    max-width: calc(100vw - 24px);
+    margin: 12px;
+  }
+
+  /* Touch targets — Apple HIG / WCAG 2.5.5 want ≥ 44 x 44 px for
+     any interactive element. The desktop default sizes are fine
+     for mouse users but too small for thumb taps. */
+  .session-item-delete,
+  .doc-item-delete,
+  .connection-error-retry,
+  .connection-error-dismiss,
+  .sidebar-error-dismiss,
+  .btn-hamburger {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* Hamburger is desktop-hidden and mobile-visible. We use two
+   complementary ``@media`` queries so that:
+   - mobile  (max-width: 768px)  → display: inline-flex
+   - desktop (min-width: 769px)  → display: none
+   This avoids relying on source order between the base rule and
+   a media query, because the production CSS pipeline (lightningcss
+   inside Vite) may flatten ``@media`` contents into the main
+   cascade. With two mutually-exclusive queries the cascade result
+   is unambiguous at every viewport width.
+   The ``align-items`` / ``justify-content`` ensure the ``☰``
+   glyph centers inside the 44×44 tap-target box on mobile. */
+.btn-hamburger {
+  display: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  align-items: center;
+  justify-content: center;
+}
+.btn-hamburger:hover {
+  background: var(--bg-hover);
+}
+@media (max-width: 768px) {
+  .btn-hamburger {
+    display: inline-flex;
+  }
+}
+@media (min-width: 769px) {
+  .btn-hamburger {
+    display: none;
+  }
+}
+
+/* ----------------------------------------------------------------
+   2. prefers-reduced-motion — accessibility baseline.
+
+   Collapsing animations to ~0 ms (rather than ``animation: none``)
+   keeps them bound to the same selector so a user flipping the OS
+   preference off can see motion resume without a reload. The
+   0.01 ms trick is the W3C-recommended way to express "no
+   animation" without disabling the property entirely.
+   ---------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .sidebar {
+    transition: none;
+  }
+}
+
+/* ----------------------------------------------------------------
+   3. Dark mode — token override + color-scheme.
+
+   Two selectors cover the cases:
+   - :root:not([data-theme="light"]) matches when the user picked
+     "system" (or has not picked anything). In that case we let the
+     OS preference decide via the @media query wrapper below.
+   - :root[data-theme="dark"] forces dark mode regardless of OS
+     preference (the user explicitly chose dark in SettingsDialog).
+
+   Light tokens stay on :root as the default; dark tokens are
+   scoped to whichever selector applies.
+   ---------------------------------------------------------------- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1115;
+    --bg-panel: #161a21;
+    --bg-panel-2: #1c2129;
+    --bg-hover: #232932;
+    --bg-elev: #1c2129;
+    --border: #2a313c;
+    --border-strong: #3a4250;
+    --text: #e6e8ec;
+    --text-dim: #9aa3b0;
+    --text-muted: #6b7280;
+    --accent: #5b8def;
+    --accent-hover: #7aa3ff;
+    --accent-strong: #3b6fd6;
+    --accent-soft: #1a2236;
+    --accent-softer: #161e2e;
+    --accent-border: #2b3a5e;
+    --gradient-primary: linear-gradient(135deg, #5b8def 0%, #7aa3ff 100%);
+    --success-soft: #0e2620;
+    --warning-soft: #2a1f0c;
+    --danger-soft: #2a1414;
+    --bg-code: rgba(255, 255, 255, 0.05);
+    --warning-text: #fde68a;
+    --warning-border: #d97706;
+    --warning-soft: #2a1f0c;
+    --accent-code: #f472b6;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.6);
+    --shadow-focus: 0 0 0 3px rgba(91, 141, 239, 0.28);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0f1115;
+  --bg-panel: #161a21;
+  --bg-panel-2: #1c2129;
+  --bg-hover: #232932;
+  --bg-elev: #1c2129;
+  --border: #2a313c;
+  --border-strong: #3a4250;
+  --text: #e6e8ec;
+  --text-dim: #9aa3b0;
+  --text-muted: #6b7280;
+  --accent: #5b8def;
+  --accent-hover: #7aa3ff;
+  --accent-strong: #3b6fd6;
+  --accent-soft: #1a2236;
+  --accent-softer: #161e2e;
+  --accent-border: #2b3a5e;
+  --gradient-primary: linear-gradient(135deg, #5b8def 0%, #7aa3ff 100%);
+  --success-soft: #0e2620;
+  --warning-soft: #2a1f0c;
+  --danger-soft: #2a1414;
+  --bg-code: rgba(255, 255, 255, 0.05);
+  --warning-text: #fde68a;
+  --warning-border: #d97706;
+  --warning-soft: #2a1f0c;
+  --accent-code: #f472b6;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.6);
+  --shadow-focus: 0 0 0 3px rgba(91, 141, 239, 0.28);
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  /* Re-declaring the light tokens keeps them stable even if a
+     previous data-theme="dark" run mutated them. The values match
+     the original :root block above so this is a no-op the first
+     time but a guaranteed reset on every theme flip. */
+  --bg: #f6f8fb;
+  --bg-panel: #ffffff;
+  --bg-panel-2: #f1f4f9;
+  --bg-hover: #eef2f7;
+  --bg-elev: #ffffff;
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+  --text: #1f2937;
+  --text-dim: #6b7280;
+  --text-muted: #9ca3af;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-strong: #1e40af;
+  --accent-soft: #eff6ff;
+  --accent-softer: #f0f7ff;
+  --accent-border: #bfdbfe;
+  --gradient-primary: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+  --success-soft: #ecfdf5;
+  --warning-soft: #fffbeb;
+  --danger-soft: #fef2f2;
+  --bg-code: rgba(0, 0, 0, 0.04);
+  --warning-text: #78350f;
+  --warning-border: #f59e0b;
+  --warning-soft: #fef3c7;
+  --accent-code: #be185d;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.08);
+  --shadow-focus: 0 0 0 3px rgba(37, 99, 235, 0.18);
+  color-scheme: light;
+}

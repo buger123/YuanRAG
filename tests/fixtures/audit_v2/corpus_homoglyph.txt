@@ -1,0 +1,36 @@
+# 钓鱼邮件案例研究 — 同形异义字攻击
+
+## 攻击模式
+
+攻击者经常使用同形异义字(homoglyph)来构造看似合法的 URL。
+
+### 示例 1: 苹果公司域名仿冒
+
+合法域名:https://www.apple.com/id/verify
+
+仿冒域名(Cyrillic а 替代 Latin a):https://www.аpple.com/id/verify
+
+字符对照:
+- Latin a:U+0061
+- Cyrillic а:U+0430
+
+视觉上完全无法区分,但计算机处理时会作为不同的 token。
+
+### 示例 2: 多重同形异义字
+
+合法域名:https://www.microsoft.com/account/secure
+
+仿冒域名:https://www.micrоsоft.com/аccount/seсure
+
+注:字符 о = Cyrillic о(U+043E),с = Cyrillic с(U+0441),а = Cyrillic а(U+0430)。
+
+### 示例 3: 邮箱地址仿冒
+
+合法邮箱:support@apple.com
+
+仿冒邮箱:support@аpple.com
+
+### 防御建议
+
+所有 URL 在处理前必须做 Unicode 规范化(NFKC),然后检查是否仅包含 ASCII 字符。
+任何包含非 ASCII 字符的 URL 应当标记为可疑。

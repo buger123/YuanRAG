@@ -1,0 +1,39 @@
+[project]
+name = "rag-assistant"
+version = "0.1.0"
+description = "Local RAG assistant with agentic retrieval, hybrid search, and a web UI"
+requires-python = ">=3.11"
+authors = [{ name = "You" }]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# tests/e2e/ is the Playwright Layer 5 harness (TypeScript). It is NOT
+# collected by pytest — run via `bash tests/e2e/run.sh` or `npm run e2e`.
+# tests/run_e2e_upload_test.py is a Layer-4 manual harness script that
+# hits a real backend with a real LLM — meant to be invoked by humans,
+# not run as part of `pytest tests/`. Pytest 9 dropped
+# ``collect_ignore_glob`` as an ini option (it was deprecated in 8.x),
+# so we pass it through ``addopts`` using the still-supported CLI
+# flag ``--ignore-glob``.
+addopts = [
+  "-v",
+  "--tb=short",
+  "--ignore-glob=tests/e2e/**",
+  "--ignore-glob=tests/run_e2e_upload_test.py",
+]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+# v2.0.29.6 (Phase 5) — declare the ``slow`` marker so behavioral
+# LLM-end-to-end tests in test_prompts_honesty.py don't trigger
+# "unknown marker" warnings. Run with `pytest --run-slow -m slow`.
+markers = [
+    "slow: marks tests as slow (LLM-end-to-end behavioral assertions; opt-in via --run-slow)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]

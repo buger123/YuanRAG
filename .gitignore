@@ -1,0 +1,81 @@
+# ============================================================
+# Yuan RAG — .gitignore
+#
+# This repo is meant to be cloned and run anywhere. The following
+# patterns are intentionally NOT committed because they're either
+# user-specific (api keys, local settings), machine-generated
+# (caches, build output), or runtime state (uploads, indexes).
+# ============================================================
+
+# ----- Python -----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ----- Local virtualenv (created by start.bat / start.sh on first run) -----
+.venv/
+venv/
+env/
+ENV/
+
+# ----- Dependency install marker (written by start.bat / start.sh) -----
+.deps_installed
+
+# ----- Backend runtime state -----
+# Default location is ``~/.rag_assistant`` but users can override via
+# ``RAG_DATA_DIR=./data`` in their ``.env``. We gitignore both so a
+# fresh clone doesn't accidentally commit someone else's uploads,
+# vector indexes, or chat history.
+data/
+.rag_assistant/
+
+# HuggingFace model cache — default lives under RAG_DATA_DIR/hf_cache,
+# but users may set HF_HOME to anywhere.
+hf_cache/
+
+# Logs from local runs
+*.log
+logs/
+# Stray startup-log artifact written by start.bat / start.sh in the
+# project root. It's runtime output, not source.
+log
+
+# ----- Frontend -----
+src/frontend/node_modules/
+src/frontend/dist/
+src/frontend/tsconfig.tsbuildinfo
+
+# ----- User secrets / local config -----
+# The committed ``.env.example`` shows the schema; ``.env`` is the
+# user's actual file with API keys etc.
+.env
+.env.local
+.env.*.local
+
+# ----- Claude Code / editor -----
+# All Claude Code settings files are user-specific (accumulate Bash
+# permission grants per machine). Skip the whole directory except
+# for a possible future ``settings.example.json`` if we ever ship
+# a shared config.
+.claude/settings.json
+.claude/settings.local.json
+
+# Common IDE / OS noise
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ----- Stray artifacts -----
+# Files like ``=1.0.0`` sometimes appear from malformed
+# ``pip install package==1.0.0`` invocations where the shell didn't
+# see the redirection. They're not part of the codebase.
+=*

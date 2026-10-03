@@ -1,0 +1,7 @@
+# Playwright output (traces, videos, screenshots on failure)
+# plus transient build artifacts produced by `webServer.command` in
+# playwright.config.ts (`npm run build` writes to src/frontend/dist/).
+output/
+test-results/
+playwright-report/
+../playwright-report/
