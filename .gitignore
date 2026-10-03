@@ -46,6 +46,14 @@ logs/
 # project root. It's runtime output, not source.
 log
 
+# ----- Per-developer / internal-only directories -----
+# These directories are kept out of the public repo by default. They
+# contain debugging / development-context files that aren't part of
+# the shipping product. A user can remove these lines to commit them
+# if their workflow relies on it.
+memory/
+test-results/
+
 # ----- Frontend -----
 src/frontend/node_modules/
 src/frontend/dist/
