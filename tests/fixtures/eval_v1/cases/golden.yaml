@@ -1,0 +1,221 @@
+# Golden 集 — 10 happy-path cases (per 2026-10-04 商定)
+# 全程 i18n zh;覆盖所有 FSM 节点 + 7 个 corpus 文件格式。
+---
+- id: golden-001-time-zh
+  language: zh
+  difficulty: easy
+  thread_id: golden-001
+  fixture_docs: []
+  tags: [time-tool, smoke]
+  turns:
+    - user: 现在北京时间几点?
+      high_precision: auto
+      # 验证 time tool 必须调用,正确报告当前时间
+      # expected_answer_contains 留空 — 验证工具调用结果,工具返回结果与最终结果一致即可
+      expected_grounding: skipped
+      expected_route_decision: direct
+      expected_tool_call_count: 1
+  scoring_weights:
+    programmatic_pass: 0.7
+    cheap_llm_pass: 0.3
+    threshold_pass: 0.7
+
+- id: golden-002-weather-zh
+  language: zh
+  difficulty: medium
+  thread_id: golden-002
+  fixture_docs: []
+  tags: [time-tool, web-search, multi-tool]
+  turns:
+    - user: 北京昨天天气如何?
+      high_precision: auto
+      # 必须调用 get_current_time + web_search
+      # 验证最终答案:工具调用结果(昨日期 + 天气)与最终答案一致
+      expected_grounding: skipped
+      expected_route_decision: direct
+      expected_tool_call_count: 2
+  scoring_weights:
+    programmatic_pass: 0.7
+    cheap_llm_pass: 0.3
+    threshold_pass: 0.7
+
+- id: golden-003-greeting-zh
+  language: zh
+  difficulty: easy
+  thread_id: golden-003
+  fixture_docs: []
+  tags: [greeting, smoke]
+  turns:
+    - user: 你好,你能做什么?
+      high_precision: auto
+      expected_answer_contains:
+        - 你好
+        - 助手
+      expected_grounding: skipped
+      expected_route_decision: direct
+      expected_tool_call_count: 0
+  scoring_weights:
+    programmatic_pass: 0.6
+    cheap_llm_pass: 0.4
+    threshold_pass: 0.7
+
+- id: golden-004-docx-zh
+  language: zh
+  difficulty: medium
+  thread_id: golden-004
+  fixture_docs:
+    - dy作文.docx
+  tags: [qa_complex, docx, retrieval]
+  turns:
+    - user: 这篇作文讨论的核心概念是什么?作者对'通话膨胀'持什么态度?
+      high_precision: auto
+      expected_answer_contains:
+        - 通话膨胀
+        - 通货膨胀
+        - 便利性
+      expected_grounding: grounded
+      expected_route_decision: retrieve
+      expected_tool_call_count: 1
+  scoring_weights:
+    programmatic_pass: 0.5
+    cheap_llm_pass: 0.5
+    threshold_pass: 0.7
+
+- id: golden-005-pdf-time-zh
+  language: zh
+  difficulty: medium
+  thread_id: golden-005
+  fixture_docs:
+    - 2025年上半年英语六级笔试准考证(150823200403172817).pdf
+  tags: [qa_complex, pdf, table-extraction]
+  turns:
+    - user: 我的六级考试具体几点开考几点结束?
+      high_precision: auto
+      # 14:30 是「报到时间」,不是考试时间,期望答案不应混淆
+      expected_answer_contains:
+        - "15:00"
+        - "17:25"
+      expected_answer_lacks:
+        - 报到
+      expected_grounding: grounded
+      expected_route_decision: retrieve
+      expected_tool_call_count: 1
+  scoring_weights:
+    programmatic_pass: 0.5
+    cheap_llm_pass: 0.5
+    threshold_pass: 0.7
+
+- id: golden-006-pdf-school-zh
+  language: zh
+  difficulty: medium
+  thread_id: golden-006
+  fixture_docs:
+    - 2025年上半年英语六级笔试准考证(150823200403172817).pdf
+  tags: [qa_complex, pdf, multi-section]
+  turns:
+    - user: 我的六级考试在哪所学校哪个教学楼?
+      high_precision: auto
+      expected_answer_contains:
+        - 南开大学
+        - 津南
+        - 公教楼
+      expected_grounding: grounded
+      expected_route_decision: retrieve
+      expected_tool_call_count: 1
+  scoring_weights:
+    programmatic_pass: 0.5
+    cheap_llm_pass: 0.5
+    threshold_pass: 0.7
+
+- id: golden-007-xlsx-budget-zh
+  language: zh
+  difficulty: medium
+  thread_id: golden-007
+  fixture_docs:
+    - 个人月度收支预算管理表.xlsx
+  tags: [qa_complex, xlsx, multi-sheet]
+  turns:
+    - user: 我8月份餐饮预算是多少?实际花了多少?
+      high_precision: auto
+      expected_answer_contains:
+        - "2000"
+        - "1800"
+      expected_grounding: grounded
+      expected_route_decision: retrieve
+      expected_tool_call_count: 1
+  scoring_weights:
+    programmatic_pass: 0.5
+    cheap_llm_pass: 0.5
+    threshold_pass: 0.7
+
+- id: golden-008-verbatim-zh
+  language: zh
+  difficulty: medium
+  thread_id: golden-008
+  fixture_docs:
+    - Python.md
+  tags: [high_precision, verbatim, md]
+  turns:
+    - user: Python LEGB 4个字母分别代表什么作用域?请逐字引用
+      high_precision: "on"
+      expected_answer_contains:
+        - Local
+        - Enclosing
+        - Global
+        - Built-in
+      expected_grounding: grounded
+      expected_route_decision: extractive
+      expected_tool_call_count: 1
+  scoring_weights:
+    programmatic_pass: 0.6
+    cheap_llm_pass: 0.4
+    threshold_pass: 0.8
+
+- id: golden-009-multi-turn-zh
+  language: zh
+  difficulty: hard
+  thread_id: golden-009
+  fixture_docs:
+    - 1.txt
+  tags: [multi-turn, retrieval, thread-state]
+  turns:
+    - user: 王者荣耀发生了什么事?
+      high_precision: auto
+      expected_answer_contains:
+        - 王者荣耀
+        - 高校认证
+      expected_grounding: grounded
+      expected_route_decision: retrieve
+      expected_tool_call_count: 1
+    - user: 那腾讯音乐发债多少钱?
+      high_precision: auto
+      expected_answer_contains:
+        - "10"
+        - 亿美元
+        - "5.05"
+      expected_grounding: grounded
+      expected_route_decision: retrieve
+      expected_tool_call_count: 1
+  scoring_weights:
+    programmatic_pass: 0.5
+    cheap_llm_pass: 0.5
+    threshold_pass: 0.7
+
+- id: golden-010-direct-zh
+  language: zh
+  difficulty: easy
+  thread_id: golden-010
+  fixture_docs: []
+  tags: [direct, smoke, no-tool]
+  turns:
+    - user: 1+1=几?
+      high_precision: auto
+      expected_answer_contains:
+        - "2"
+      expected_grounding: skipped
+      expected_route_decision: direct
+      expected_tool_call_count: 0
+  scoring_weights:
+    programmatic_pass: 0.5
+    cheap_llm_pass: 0.5
+    threshold_pass: 0.7

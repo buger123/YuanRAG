@@ -5,6 +5,15 @@
 
 ---
 
+## 2026-10 · 评估 harness(eval v1)
+
+### v2.0.32.0 — 2026-10-04 · RAG 评估 harness (golden + adversarial + Claude-as-judge)
+- **修改了什么:** `tests/eval/` NEW 12-file package(`cases` / `runner` / `tokens` / `cost` / `report` / `cli` / `judge/{programmatic,cheap_llm,claudemd}`)+ `tests/fixtures/eval_v1/` 7 real-corpus 文件(txt/pdf/docx/md/html/xlsx/pptx 全)+ 10 golden + 22 adversarial YAML case(全 zh,覆盖 Phase 8 6 根因组 A-F)+ 3-pass judge(程序化结构断言 / cheap-LLM 0-2 评分 / Claude 离线 verdict)+ JSONL+Markdown+console 报告。
+- **原理:** 固定测试集是反幻觉 9-Phase 链路的「温度计」—— 32 case 量化 成功率 / 失败原因 / 工具调用次数 / 成本 / 延迟 / 幻觉率 / 引用完整性;跑真 `POST /chat` SSE wire path(不直接 import `stream_agent`),捕获 wire-format / i18n catalog / citation renumber / upload-clear 全 bug surface。
+- **有何提升:** 33/33 mocked pytest PASSED,0 回归(其他 case 既有 234 fail + 74 error 是 anthropic SDK env 问题,非本改动);**invariant**:不修改生产代码 / WS wire shape 不变 / `retrieval_status` 4 值不变 / `Source.verbatim` 默认 False backward-compat / `RAG_DATA_DIR` pytest autouse tmp_path + CLI 自管 ensure_isolated_data_dir 隔离 / `safe_load` 强制 + `yaml.YAMLError → CaseLoadError` re-raise / `TokenCapture.install/uninstall` 配对 exception-safe。
+
+---
+
 ## 2026-09 · 反幻觉 9-Phase 链路 + UX polish(post-hallucination)
 
 ### v2.0.31.1 — 2026-09-29 · 高精确模式首次使用可发现性
