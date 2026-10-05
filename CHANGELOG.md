@@ -7,6 +7,11 @@
 
 ## 2026-10 · 评估 harness(eval v1)
 
+### v2.0.32.2 — 2026-10-05 · Phase 3+4 cheap_llm judge wiring + CI nightly cron
+- **修改了什么:** `tests/eval/cli.py` `--judge all/cheap_llm` dispatch 由 no-op 改为真调 `run_cheap_llm_judge` per turn + 同步算 composite_score;`tests/eval/report.py` `hallucination_rate` 改读 `per_turn[]` 而不是 flat dict;每 run 末尾自动 emit `<timestamp>.claude_prompt.txt`(Pass 3 离线 verdict prompt stub);`.github/workflows/ci.yml`(fast mocked pytest + frontend build)+ `.github/workflows/eval-nightly.yml`(cron 02:00 UTC daily + manual dispatch,boot backend → `/models/wait` → eval suite → upload artifacts 90d)。
+- **原理:** Phase 3 修了 `--judge` flag 假传问题:之前 runner 永远写 `"cheap_llm": None`,CLI flag 完全没接;现在 sync CLI 内 `asyncio.run` 包 async judge,judge 失败 swallow 让 composite 回退 programmatic-only。Phase 4 把 eval 接入 GitHub Actions:CI 默认只跑 mocked(避 torch/bge-m3 重依赖),nightly cron 装 full ML deps + boot 真 backend 跑完整 suite,threshold 0.0 验证 infra,等 Phase 1.5 修 defensive override + API 恢复后改 0.7。
+- **有何提升:** 35/35 mocked pytest PASSED(+2 NEW Phase 3),0 回归;**invariant**:生产代码不动 / WS wire shape 不变 / `retrieval_status` 4 值不变 / CI 不传 `RAG_DATA_DIR` 共享 host 数据(autouse tmp_path 隔离)/ nightly 90min timeout 防 hang。
+
 ### v2.0.32.1 — 2026-10-05 · eval harness calibration + en mirror (i18n regression net)
 - **修改了什么:** `tests/fixtures/eval_v1/cases/golden.yaml` 4 case calibrate(golden-001 route_decision direct→retrieve / 002 tool_call_count 2→3 / 005+006 expected_grounding grounded→skipped)+ 5 en mirror case(001-time/002-weather/003-greeting/008-verbatim/010-direct);judge `_answer_field` / `_sources` 改读 LAST `answer_complete` event 而非 FIRST(原 first 撞到空 placeholder)。
 - **原理:** Eval infra ship 后(commit 361ef3a)真 LLM 跑暴露 7 case 因 Anthropic 529 OverloadedError 雪崩→`defensive override` 用不全 TM data→fallback 错误,真 ceiling 30% 不在 calibration;5 en mirror 验证 `Accept-Language` header → i18n catalog → 英文 answer 渲染链路,留作 regression net。

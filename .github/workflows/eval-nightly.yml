@@ -1,0 +1,117 @@
+name: Eval Nightly
+
+# ============================================================
+# YuanRAG — Eval nightly cron (manual + 02:00 UTC daily)
+#
+# Triggers:
+#   - cron: 02:00 UTC daily (cheap LLM cost window)
+#   - workflow_dispatch: manual run with --threshold override
+#
+# Behavior:
+#   - boots backend on :8765 with RAG_DATA_DIR isolated to runner.temp
+#   - waits for /models/wait?timeout=180 to confirm BGE-M3 + reranker loaded
+#   - runs tests/eval/cli with --suite golden (15 cases after Phase 2 mirror)
+#   - uploads JSONL + rollup + markdown as artifacts (90-day retention)
+#   - threshold=0.0 (infra-validation default) — production threshold 0.7
+#     waits until Phase 1.5 fixes defensive override + API 529 recovery
+#
+# v2.0.32.2 — wired up 2026-10-05
+# ============================================================
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      threshold:
+        description: "Pass-threshold for the eval suite"
+        required: false
+        default: "0.0"
+      suite:
+        description: "Which suite to run"
+        required: false
+        default: "golden"
+
+jobs:
+  eval:
+    name: Eval suite (${{ inputs.suite || 'golden' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      # Isolate runner-scoped data so we never pollute ~/.rag_assistant.
+      RAG_DATA_DIR: ${{ runner.temp }}/rag-eval
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install runtime + ML deps
+        # Full deps incl. torch + bge-m3 — nightly job only.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . --no-deps
+          pip install \
+            pytest pytest-asyncio pytest-cov httpx pydantic pyyaml loguru rich \
+            torch --index-url https://download.pytorch.org/whl/cpu \
+            sentence-transformers FlagEmbedding
+
+      - name: Boot backend
+        env:
+          RAG_BACKEND_PORT: "8765"
+          RAG_HOST: "127.0.0.1"
+        run: |
+          nohup python -m src.main --no-browser \
+            --host "${RAG_HOST}" --port "${RAG_BACKEND_PORT}" \
+            > backend.log 2>&1 &
+          BACKEND_PID=$!
+          echo "Backend PID: ${BACKEND_PID}"
+          # Wait up to 90s for the port to open.
+          for i in $(seq 1 90); do
+            if curl -sf "http://${RAG_HOST}:${RAG_BACKEND_PORT}/healthz" >/dev/null; then
+              echo "Backend up after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Wait for models loaded
+        env:
+          RAG_HOST: "127.0.0.1"
+          RAG_BACKEND_PORT: "8765"
+        run: |
+          curl -sf "http://${RAG_HOST}:${RAG_BACKEND_PORT}/models/wait?timeout=180" \
+            || (echo "models/wait timed out — bailing" && exit 1)
+
+      - name: Run eval suite
+        env:
+          RAG_HOST: "127.0.0.1"
+          RAG_BACKEND_PORT: "8765"
+          THRESHOLD: ${{ inputs.threshold || '0.0' }}
+          SUITE: ${{ inputs.suite || 'golden' }}
+        run: |
+          mkdir -p eval-reports
+          python -m tests.eval \
+            --suite "${SUITE}" \
+            --base-url "http://${RAG_HOST}:${RAG_BACKEND_PORT}" \
+            --threshold "${THRESHOLD}" \
+            --judge programmatic \
+            --reports-dir eval-reports
+
+      - name: Upload eval artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-reports-${{ inputs.suite || 'golden' }}
+          path: eval-reports/
+          retention-days: 90
+
+      - name: Stop backend
+        if: always()
+        run: |
+          pkill -f "src.main" || true
+          tail -50 backend.log || true

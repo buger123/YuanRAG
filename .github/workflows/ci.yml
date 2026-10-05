@@ -1,0 +1,59 @@
+name: CI
+
+# ============================================================
+# YuanRAG — CI gate (every push + PR)
+#
+# Runs fast mocked pytest ONLY. The full eval harness
+# (tests/test_eval_smoke.py + tests/e2e/verify-eval-suite-layer5.py)
+# requires a running backend on :8765 with BGE-M3 + reranker loaded,
+# which is out of scope for hosted CI. See .github/workflows/
+# eval-nightly.yml for the manual-trigger full suite.
+#
+# v2.0.32.2 — wired up 2026-10-05
+# ============================================================
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  fast-pytest:
+    name: Fast mocked pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Install runtime + test deps only — skip heavy ML deps
+          # (torch, docling, bge-m3) that the mocked tests don't touch.
+          pip install -e . --no-deps
+          pip install pytest pytest-asyncio pytest-cov httpx pydantic pyyaml loguru rich
+
+      - name: Run mocked pytest (no @slow)
+        env:
+          # Skip RAG_DATA_DIR isolation — CI sandbox is fresh each run.
+          RAG_DATA_DIR: ${{ runner.temp }}/rag-eval-test
+        run: |
+          pytest tests/test_eval_runner.py tests/eval/ -q \
+            --ignore=tests/test_eval_smoke.py \
+            -m "not slow"
+
+      - name: Frontend install
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: Frontend typecheck + build
+        working-directory: frontend
+        run: |
+          npm run build
