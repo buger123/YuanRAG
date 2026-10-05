@@ -24,7 +24,7 @@ from tests.eval.report import (
 from tests.eval.runner import AsyncHarnessRunner
 
 
-DEFAULT_REPORTS_DIR = Path(__file__).resolve().parents[2] / "eval" / "reports"
+DEFAULT_REPORTS_DIR = Path(__file__).resolve().parent / "reports"
 
 
 def _build_argparser() -> argparse.ArgumentParser:

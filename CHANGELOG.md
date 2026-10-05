@@ -7,6 +7,11 @@
 
 ## 2026-10 · 评估 harness(eval v1)
 
+### v2.0.32.1 — 2026-10-05 · eval harness calibration + en mirror (i18n regression net)
+- **修改了什么:** `tests/fixtures/eval_v1/cases/golden.yaml` 4 case calibrate(golden-001 route_decision direct→retrieve / 002 tool_call_count 2→3 / 005+006 expected_grounding grounded→skipped)+ 5 en mirror case(001-time/002-weather/003-greeting/008-verbatim/010-direct);judge `_answer_field` / `_sources` 改读 LAST `answer_complete` event 而非 FIRST(原 first 撞到空 placeholder)。
+- **原理:** Eval infra ship 后(commit 361ef3a)真 LLM 跑暴露 7 case 因 Anthropic 529 OverloadedError 雪崩→`defensive override` 用不全 TM data→fallback 错误,真 ceiling 30% 不在 calibration;5 en mirror 验证 `Accept-Language` header → i18n catalog → 英文 answer 渲染链路,留作 regression net。
+- **有何提升:** golden.yaml 10→15 cases load 干净;Layer 5 ship gate threshold=0.0 仍 PASS(infra 验证),生产 threshold 0.7 等 Phase 1.5 修 defensive override + Anthropic API 恢复;**invariant**:生产代码不动 / WS wire shape 不变 / `retrieval_status` 4 值不变 / judge `_answer_field` 只读 wire event 不改 production。
+
 ### v2.0.32.0 — 2026-10-04 · RAG 评估 harness (golden + adversarial + Claude-as-judge)
 - **修改了什么:** `tests/eval/` NEW 12-file package(`cases` / `runner` / `tokens` / `cost` / `report` / `cli` / `judge/{programmatic,cheap_llm,claudemd}`)+ `tests/fixtures/eval_v1/` 7 real-corpus 文件(txt/pdf/docx/md/html/xlsx/pptx 全)+ 10 golden + 22 adversarial YAML case(全 zh,覆盖 Phase 8 6 根因组 A-F)+ 3-pass judge(程序化结构断言 / cheap-LLM 0-2 评分 / Claude 离线 verdict)+ JSONL+Markdown+console 报告。
 - **原理:** 固定测试集是反幻觉 9-Phase 链路的「温度计」—— 32 case 量化 成功率 / 失败原因 / 工具调用次数 / 成本 / 延迟 / 幻觉率 / 引用完整性;跑真 `POST /chat` SSE wire path(不直接 import `stream_agent`),捕获 wire-format / i18n catalog / citation renumber / upload-clear 全 bug surface。

@@ -66,20 +66,31 @@ def _normalize(text: str) -> str:
 
 
 def _answer_field(events: list[dict]) -> str:
-    """Pull ``answer_complete.answer`` from the wire-event log."""
+    """Pull ``answer_complete.answer`` from the wire-event log.
+
+    CALIBRATION (2026-10-05): read the LAST answer_complete event, not
+    the first. The wire may emit multiple answer_complete events (initial
+    empty placeholder + final streamed answer); the judge's answer_contains
+    check was hitting the empty placeholder and reporting `got=[]`.
+    """
+    last = ""
     for ev in events:
         if ev.get("type") == "answer_complete":
             ans = ev.get("answer") or ""
-            return ans if isinstance(ans, str) else ""
-    return ""
+            if isinstance(ans, str):
+                last = ans
+    return last
 
 
 def _sources(events: list[dict]) -> list[dict]:
+    """Pull ``answer_complete.sources`` from the LAST such event."""
+    last: list[dict] = []
     for ev in events:
         if ev.get("type") == "answer_complete":
             srcs = ev.get("sources") or []
-            return list(srcs) if isinstance(srcs, list) else []
-    return []
+            if isinstance(srcs, list):
+                last = list(srcs)
+    return last
 
 
 def _grounding_status(events: list[dict]) -> Optional[str]:
