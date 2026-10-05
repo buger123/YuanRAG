@@ -753,3 +753,58 @@ def test_expected_refusal_required_template() -> None:
     finally:
         import shutil
         shutil.rmtree(tmp, ignore_errors=True)
+
+# ============================================================
+# Phase 3 (2026-10-05) — cheap-LLM judge dispatch + Claude prompt stub
+# ============================================================
+
+
+def test_cli_should_run_cheap_llm_dispatch() -> None:
+    """`--judge` flag dispatch:
+      - ``all``          → run cheap_llm
+      - ``cheap_llm``    → run cheap_llm
+      - ``programmatic`` → skip cheap_llm
+    """
+    from tests.eval.cli import _should_run_cheap_llm
+
+    assert _should_run_cheap_llm("all") is True
+    assert _should_run_cheap_llm("cheap_llm") is True
+    assert _should_run_cheap_llm("programmatic") is False
+
+
+def test_cli_expected_answer_text_aggregates_contains() -> None:
+    """expected_answer_text concatenates expected_answer_contains into a
+    human-readable reference string for the cheap-LLM judge."""
+    from tests.eval.cli import _expected_answer_text
+
+    turn = TurnAnnotation(
+        user="query",
+        expected_answer_contains=["15:00", "17:25"],
+        expected_answer_lacks=[],
+        forbidden_phrases=[],
+        expected_citations=[],
+        high_precision="auto",
+        expected_grounding="skipped",
+        expected_route_decision="retrieve",
+        expected_tool_call_count=2,
+        expected_tool_sequence=[],
+        expected_refusal=None,
+    )
+    text = _expected_answer_text(turn)
+    assert "15:00" in text
+    assert "17:25" in text
+    # Empty expected → empty string (judge scores 0 by default).
+    empty_turn = TurnAnnotation(
+        user="query",
+        expected_answer_contains=[],
+        expected_answer_lacks=[],
+        forbidden_phrases=[],
+        expected_citations=[],
+        high_precision="auto",
+        expected_grounding="skipped",
+        expected_route_decision="direct",
+        expected_tool_call_count=0,
+        expected_tool_sequence=[],
+        expected_refusal=None,
+    )
+    assert _expected_answer_text(empty_turn) == ""

@@ -116,19 +116,24 @@ def compute_rollup(results: list[CaseResult]) -> RollupMetrics:
 
     # Hallucination rate — count ungrounded OR (grounded AND cheap-llm
     # accuracy=0). Cases without grounding event are excluded.
+    # Phase 3 (2026-10-05): cheap_llm wire shape is ``{pass, per_turn[], composite_mean}``
+    # (per-turn judgments, not a single flat judgment). Read per_turn and
+    # treat any turn with accuracy=0 as fabrication.
     grounded_count = 0
     hallucinated_count = 0
     for r in results:
-        for t in r.turns:
+        for t_idx, t in enumerate(r.turns):
             if t.grounding_status is None:
                 continue
             grounded_count += 1
             if t.grounding_status == "ungrounded":
                 hallucinated_count += 1
             elif r.judgment.get("cheap_llm"):
-                # Cheap-LLM flagged accuracy=0 → fabrication despite
-                # wire-reported "grounded"
-                if r.judgment["cheap_llm"].get("score_accuracy", 2) == 0:
+                cheap = r.judgment["cheap_llm"]
+                per_turn = cheap.get("per_turn") or []
+                # Match per-turn index; if absent, fall back to first turn.
+                pt = per_turn[t_idx] if t_idx < len(per_turn) else (per_turn[0] if per_turn else None)
+                if pt and pt.get("score_accuracy", 2) == 0:
                     hallucinated_count += 1
     hallucination_rate = hallucinated_count / grounded_count if grounded_count else 0.0
 
