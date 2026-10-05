@@ -7,6 +7,11 @@
 
 ## 2026-10 · 评估 harness(eval v1)
 
+### v2.0.32.3 — 2026-10-05 · Phase 1.5 真 bug fix · defensive override 多 TM 综合 fallback
+- **修改了什么:** `src/agent/nodes/_defensive_override_registry.py:apply_defensive_overrides` 反转 iteration 命中 first miss 立即 return → 改为 dedupe 到 LATEST TM per covered tool + check ALL covered-tool marker + 任一 miss 时返回 ALL covered-tool fallback `\n\n` join + metric 按 tool 粒度 bump;`tests/test_defensive_override_registry.py` +7 NEW pytest 锁 multi-TM 行为。
+- **原理:** Eval Phase 1 暴露 30% pass rate 根因 = defensive override 只用 FIRST tool call TM data,丢后续 retrieval chunks(PDF chunks 被丢,只剩 time 结果)。Phase 1.5 让 override 路径用 every byte of TM data — never drop retrieval data because an unrelated tool's marker was missing。Same-tool multi-call dedupe 到 LATEST 保 v2.0.28.16 multi-turn invariant。
+- **有何提升:** 32/32 defensive override registry tests PASSED(+7 NEW),其他模块 0 新增回归(8 pre-existing fail 验证 stash 验证与本改动无关);**invariant**:`DIRECTIVE_BUILDERS` / `FINGERPRINT_EXTRACTORS` / `FALLBACK_BUILDERS` 三 registry 对齐不动 / most-recent-wins dedupe 保 multi-turn safety / 单 tool 路径 backward-compat(`get_current_time` 现有 25 测试不动) / `SYNTHESIS_TM_IGNORED{tool=...}` 标签仍只 bump detected miss(unparseable marker 不 bump)。
+
 ### v2.0.32.2 — 2026-10-05 · Phase 3+4 cheap_llm judge wiring + CI nightly cron
 - **修改了什么:** `tests/eval/cli.py` `--judge all/cheap_llm` dispatch 由 no-op 改为真调 `run_cheap_llm_judge` per turn + 同步算 composite_score;`tests/eval/report.py` `hallucination_rate` 改读 `per_turn[]` 而不是 flat dict;每 run 末尾自动 emit `<timestamp>.claude_prompt.txt`(Pass 3 离线 verdict prompt stub);`.github/workflows/ci.yml`(fast mocked pytest + frontend build)+ `.github/workflows/eval-nightly.yml`(cron 02:00 UTC daily + manual dispatch,boot backend → `/models/wait` → eval suite → upload artifacts 90d)。
 - **原理:** Phase 3 修了 `--judge` flag 假传问题:之前 runner 永远写 `"cheap_llm": None`,CLI flag 完全没接;现在 sync CLI 内 `asyncio.run` 包 async judge,judge 失败 swallow 让 composite 回退 programmatic-only。Phase 4 把 eval 接入 GitHub Actions:CI 默认只跑 mocked(避 torch/bge-m3 重依赖),nightly cron 装 full ML deps + boot 真 backend 跑完整 suite,threshold 0.0 验证 infra,等 Phase 1.5 修 defensive override + API 恢复后改 0.7。

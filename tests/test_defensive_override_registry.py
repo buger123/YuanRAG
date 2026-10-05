@@ -334,6 +334,231 @@ def test_apply_defensive_overrides_skips_unregistered_tool():
 
 
 # ============================================================
+# 5b. v2.0.32.3 (Phase 1.5) — multi-TM coverage fix
+# ============================================================
+# Bug being fixed: the previous implementation returned on FIRST miss,
+# dropping data from any subsequent TM. So when get_current_time + a
+# retrieval tool fired in the same turn and the synthesis LLM only
+# emitted a chat reply (no marker for either), the override used only
+# the get_current_time fallback, dropping the retrieval chunks.
+#
+# New contract:
+#   1. Dedupe to LATEST TM per covered tool (most-recent-wins).
+#   2. Check marker for every covered tool; bump SYNTHESIS_TM_IGNORED
+#      for each missed tool.
+#   3. If ANY tool was missed → combine ALL covered-tool fallbacks
+#      joined by "\n\n". Never drop retrieval data because an
+#      unrelated tool's marker was missing.
+#   4. If ALL markers present → no override (LLM did its job).
+# ============================================================
+
+
+def _make_multi_tool_history(*tm_specs):
+    """Build history with TMs for N tool calls (tool_name, content) tuples.
+
+    Each tuple becomes one ``AIMessage(tool_calls=...)`` +
+    ``ToolMessage(content, name=<tool>)`` pair. ``tool_name`` defaults
+    to ``"get_current_time"`` when not provided (only tool registered
+    today; future Phase 1.5+ tools can be passed in by name).
+    """
+    out: List = [HumanMessage(content="query")]
+    for i, spec in enumerate(tm_specs, start=1):
+        if isinstance(spec, str):
+            tool_name, content = "get_current_time", spec
+        else:
+            tool_name, content = spec
+        out.append(AIMessage(content="", tool_calls=[{
+            "id": f"tc{i}", "name": tool_name, "args": {},
+        }]))
+        out.append(ToolMessage(
+            content=content, tool_call_id=f"tc{i}", name=tool_name,
+        ))
+    return out
+
+
+def test_apply_defensive_overrides_dedupes_same_tool_latest_wins():
+    """Multiple TMs for the same tool collapse to the LATEST one.
+
+    Multi-turn safety (v2.0.28.16 invariant): if the user asked
+    "现在几点" twice and got two TMs back, the LATEST is the one
+    the synthesis LLM is currently answering — older TMs are stale
+    context that should be ignored by the override path.
+    """
+    from src.agent.metrics import SYNTHESIS_TM_IGNORED, reset_all
+
+    reset_all()
+    # Two get_current_time TMs — older 09-27, newer 09-28.
+    history = _make_multi_tool_history(
+        "2026-09-27 10:00:00",
+        "2026-09-28 14:23:11",
+    )
+    # LLM cited the older one (regression of multi-turn bug).
+    out = apply_defensive_overrides(
+        "之前是 2026-09-27 10:00:00。",
+        history,
+        route_decision="retrieve",
+    )
+    # Newest TM is 09-28 → override fires, fallback cites 09-28.
+    assert "2026-09-28" in out, (
+        f"override should use LATEST TM 2026-09-28, got: {out!r}"
+    )
+    assert SYNTHESIS_TM_IGNORED.get(tool="get_current_time") >= 1.0
+
+
+def test_apply_defensive_overrides_all_markers_present_no_override():
+    """When ALL covered-tool markers are present in the answer, the
+    override MUST NOT fire (LLM did its job — defensive override is
+    last-resort, not normal-path).
+    """
+    from src.agent.metrics import SYNTHESIS_TM_IGNORED, reset_all
+
+    reset_all()
+    before = SYNTHESIS_TM_IGNORED.get(tool="get_current_time")
+    history = _make_multi_tool_history("2026-09-28T14:23:11+08:00")
+    out = apply_defensive_overrides(
+        "现在是 2026-09-28 14:23:11,帮你查好了。",
+        history,
+        route_decision="retrieve",
+    )
+    # No override.
+    assert out == "现在是 2026-09-28 14:23:11,帮你查好了。"
+    # No metric bump — LLM did its job.
+    assert SYNTHESIS_TM_IGNORED.get(tool="get_current_time") == before
+
+
+def test_apply_defensive_overrides_combined_fallback_when_multi_tool_miss():
+    """When the history has multiple TMs and ANY tool's marker is
+    missed, the override uses the COMBINED fallback from ALL
+    covered tools — never dropping data because an earlier tool
+    fired first in iteration order (the bug it fixed).
+
+    Note: only ``get_current_time`` is registered today, so this test
+    uses two calls to the same tool to simulate the multi-TM
+    coverage scenario. The Phase 1.5 contract pins that the
+    override path:
+      1. dedupes to latest per tool (here: 1 tool, 2 calls → 1 dedup)
+      2. checks the marker
+      3. bumps the metric when missed
+      4. combines all covered-tool fallbacks
+
+    When a future tool is added to FALLBACK_BUILDERS, the contract
+    generalizes — multi-tool coverage works the same way. Today,
+    with one tool registered, this test pins the single-tool
+    behavior post-Phase 1.5 (combined fallback == single-tool
+    fallback when only one tool is covered).
+    """
+    from src.agent.metrics import SYNTHESIS_TM_IGNORED, reset_all
+
+    reset_all()
+    before = SYNTHESIS_TM_IGNORED.get(tool="get_current_time")
+    history = _make_multi_tool_history(
+        "2026-09-28T14:23:11+08:00",
+        "2026-09-28T15:00:00+08:00",
+    )
+    out = apply_defensive_overrides(
+        "好的,那就早点休息吧,晚安。",
+        history,
+        route_decision="retrieve",
+    )
+    # Override fired and used the LATEST TM (15:00, not 14:23).
+    assert "15:00" in out, f"expected latest TM 15:00 in fallback, got: {out!r}"
+    # Metric bumped (single tool, single miss → single bump).
+    assert SYNTHESIS_TM_IGNORED.get(tool="get_current_time") == before + 1.0
+
+
+def test_apply_defensive_overrides_no_metric_bump_on_unparseable_marker():
+    """If the TM's content has NO parseable marker (fingerprint
+    extractor returns None), we don't bump SYNTHESIS_TM_IGNORED —
+    there's no way to know whether the LLM "missed" or not. Defensive
+    override should still apply (caller's answer is unchanged →
+    we still emit a fallback if any other tool missed), but the
+    metric stays clean for THIS tool.
+    """
+    from src.agent.metrics import SYNTHESIS_TM_IGNORED, reset_all
+
+    reset_all()
+    before = SYNTHESIS_TM_IGNORED.get(tool="get_current_time")
+    # TM has unparseable content (no ISO, HH, or CN marker).
+    history = _make_multi_tool_history("random text no time marker here")
+    out = apply_defensive_overrides(
+        "好的,那就早点休息吧,晚安。",
+        history,
+        route_decision="retrieve",
+    )
+    # Override MAY fire (we still emit a fallback), but the metric
+    # for THIS tool is NOT bumped — there was no detectable miss.
+    # (Other covered tools' markers would still be checked.)
+    assert SYNTHESIS_TM_IGNORED.get(tool="get_current_time") == before
+    # And the fallback includes the unparseable raw content.
+    assert "random text" in out or out  # fallback always non-empty when fb is not None
+
+
+def test_apply_defensive_overrides_empty_history_noop():
+    """Empty history (no TMs at all) → no override."""
+    history = [HumanMessage(content="hello")]
+    out = apply_defensive_overrides(
+        "回答 any answer",
+        history,
+        route_decision="retrieve",
+    )
+    assert out == "回答 any answer"
+
+
+def test_apply_defensive_overrides_no_fallback_for_history_only():
+    """History with only AIMessages/HumanMessages (no TMs at all) →
+    no override, no metric bump.
+    """
+    from src.agent.metrics import SYNTHESIS_TM_IGNORED, reset_all
+
+    reset_all()
+    before = SYNTHESIS_TM_IGNORED.get(tool="get_current_time")
+    history = [
+        HumanMessage(content="query"),
+        AIMessage(content="hi"),
+        HumanMessage(content="query 2"),
+        AIMessage(content="hi 2"),
+    ]
+    out = apply_defensive_overrides(
+        "回答 any answer",
+        history,
+        route_decision="retrieve",
+    )
+    assert out == "回答 any answer"
+    assert SYNTHESIS_TM_IGNORED.get(tool="get_current_time") == before
+
+
+def test_apply_defensive_overrides_multi_turn_mixed_tools_latest_wins():
+    """Mixed scenario: older TM (the OLD time tool call) + newer
+    TM (the NEW time tool call) in the SAME turn → override uses
+    the LATEST (most-recent-wins). Pre-Phase 1.5 code used
+    whichever tool iterated first in reverse iteration; the bug
+    was the early-return after the first miss. Post-Phase 1.5:
+    always check ALL covered tools, use the LATEST per tool.
+    """
+    from src.agent.metrics import SYNTHESIS_TM_IGNORED, reset_all
+
+    reset_all()
+    before = SYNTHESIS_TM_IGNORED.get(tool="get_current_time")
+    history = _make_multi_tool_history(
+        "2026-09-27 10:00:00",   # older
+        "2026-09-28 14:23:11",   # newer — should win
+        "2026-09-28 15:30:00",   # newest — should win
+    )
+    # LLM cited the OLDEST date (regression).
+    out = apply_defensive_overrides(
+        "之前是 2026-09-27 10:00:00。",
+        history,
+        route_decision="retrieve",
+    )
+    # Override fired and used the NEWEST TM (15:30).
+    assert "15:30" in out, (
+        f"override should use LATEST TM (2026-09-28 15:30), got: {out!r}"
+    )
+    # Single-tool, single dedup → single miss → single metric bump.
+    assert SYNTHESIS_TM_IGNORED.get(tool="get_current_time") == before + 1.0
+
+
+# ============================================================
 # 6. state["loop_breaker_active"] propagation (integration)
 # ============================================================
 

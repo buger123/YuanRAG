@@ -277,41 +277,83 @@ def apply_defensive_overrides(
     """
     if route_decision == "direct" or not answer_text:
         return answer_text
+
+    # v2.0.32.3 (Phase 1.5) — multi-TM coverage fix. Previously this
+    # iterated TMs reversed and returned on FIRST miss, dropping data
+    # from any subsequent TM (e.g. PDF retrieval) when an earlier TM
+    # (e.g. get_current_time) was missed by the synthesis LLM. See
+    # commit bf0e45d log dump for the trace (golden-005/006).
+    #
+    # New behavior:
+    #   1. Dedupe to LATEST TM per covered tool (most-recent-wins for
+    #      multi-turn safety; same-tool dupes collapsed to last call).
+    #      Preserves the v2.0.28.16 invariant.
+    #   2. Check marker for every covered tool. Bump SYNTHESIS_TM_IGNORED
+    #      for each missed tool.
+    #   3. If ANY tool missed → combined fallback from ALL covered
+    #      tools, joined by "\n\n". This is the load-bearing fix:
+    #      when the LLM misbehaves we use every byte of TM data we
+    #      have, never dropping retrieval chunks because an earlier
+    #      tool's marker was missing.
+    #   4. If ALL markers present → no override (LLM did its job).
+    from src.agent.metrics import SYNTHESIS_TM_IGNORED
+
+    latest_per_tool: Dict[str, ToolMessage] = {}
     for tm in reversed(history):
         if not isinstance(tm, ToolMessage):
             continue
         tool_name = (getattr(tm, "name", "") or "")
-        fp_ext = FINGERPRINT_EXTRACTORS.get(tool_name)
-        fb_build = FALLBACK_BUILDERS.get(tool_name)
-        if not (fp_ext and fb_build):
-            # Tool not registered for defensive override (no fingerprint
-            # AND no fallback). Either the tool doesn't need defensive
-            # coverage (most tools — the LLM ignoring one is a known
-            # failure mode only for ``get_current_time`` today), or the
-            # registries are out of sync (test will catch that).
+        if not tool_name:
             continue
+        if tool_name in latest_per_tool:
+            # Already have a more-recent TM for this tool.
+            continue
+        if tool_name not in FALLBACK_BUILDERS or tool_name not in FINGERPRINT_EXTRACTORS:
+            # Tool not registered for defensive override. Most tools
+            # don't need it — only get_current_time today.
+            continue
+        latest_per_tool[tool_name] = tm
+
+    if not latest_per_tool:
+        return answer_text
+
+    # Check each covered tool. Bump metric on miss. Collect fallbacks
+    # for every covered tool (we'll only USE them if any miss is
+    # detected — but collecting them up-front means the combined
+    # fallback covers ALL data we have, not just the missed data).
+    missed_tools: List[str] = []
+    fallback_parts: List[str] = []
+    for tool_name, tm in latest_per_tool.items():
+        fp_ext = FINGERPRINT_EXTRACTORS[tool_name]
         marker = fp_ext((getattr(tm, "content", "") or ""))
         if marker and marker not in answer_text:
-            # v2.0.29.2 (Phase 2) — observability hook. The synthesis
-            # LLM produced output but didn't cite the TM data.
-            # Defensive override catches the miss; we count how often
-            # it fires. Dashboards monitor this rate to detect model
-            # regressions (sudden spike = synthesis LLM ignoring TM
-            # data systematically).
-            from src.agent.metrics import SYNTHESIS_TM_IGNORED
-
+            missed_tools.append(tool_name)
             SYNTHESIS_TM_IGNORED.inc(tool=tool_name)
-            fallback = fb_build(tm)
-            if fallback is not None:
-                logger.warning(
-                    "react_generate: synthesis LLM emitted text but did "
-                    "NOT incorporate %s TM data; overriding with "
-                    "constructed fallback answer. LLM output: %r",
-                    tool_name,
-                    answer_text[:200],
-                )
-                return fallback
-    return answer_text
+        fb = FALLBACK_BUILDERS[tool_name](tm)
+        if fb is not None:
+            fallback_parts.append(fb)
+
+    if not missed_tools:
+        return answer_text
+
+    # At least one tool was missed → override. Use the combined
+    # fallback from ALL covered tools (not just the missed ones) so we
+    # never drop retrieval data because an unrelated tool's marker
+    # was missing.
+    if not fallback_parts:
+        return answer_text
+
+    combined = "\n\n".join(fallback_parts)
+    logger.warning(
+        "react_generate: synthesis LLM emitted text but did NOT "
+        "incorporate TM data; overriding with combined fallback "
+        "(missed %d/%d tools: %s). LLM output: %r",
+        len(missed_tools),
+        len(latest_per_tool),
+        ", ".join(missed_tools),
+        answer_text[:200],
+    )
+    return combined
 
 
 __all__ = [
