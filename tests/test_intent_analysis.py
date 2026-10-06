@@ -132,16 +132,26 @@ def test_time_need_matches_english_recency():
 
 def test_time_need_matches_time_of_day():
     """'几点' / '几号' must trigger even without an explicit
-    recency word. English 'what time' doesn't currently match
-    (the regex focuses on the canonical Chinese recency markers
-    + English recency tokens); the LLM still has access to the
-    time tool via the bind_tools surface if it decides to call it."""
+    recency word.
+
+    v2.0.32.4 (2026-10-05) — i18n parity: English time-of-day
+    markers now also trigger. Pre-fix the regex missed "what time
+    is it" / "current time" → simple_fact fast-path caught the
+    "what is X" prefix → route_decision=direct (no tool bound) →
+    LLM answered "I don't have access to a real-time clock". Added
+    ``current time/date/day`` + ``the time`` + ``what time is it``
+    patterns so EN time queries get the same treatment as CN.
+    """
     from src.agent.nodes.intent_analysis import _query_needs_time
 
     assert _query_needs_time("现在几点了") is True
     assert _query_needs_time("今天是几号") is True
-    # Note: 'what time is it' is NOT in the regex (English time-of-day
-    # markers aren't enumerated) — only English recency words hit.
+    # v2.0.32.4 — EN time-of-day now matches too.
+    assert _query_needs_time("What time is it?") is True
+    assert _query_needs_time("What time is it in Beijing?") is True
+    assert _query_needs_time("What is the current time in Beijing?") is True
+    assert _query_needs_time("Tell me the time") is True
+    assert _query_needs_time("What is the current date?") is True
 
 
 def test_time_need_does_not_match_eternal_questions():

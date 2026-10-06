@@ -88,6 +88,19 @@ _TIME_NEED_PATTERNS = (
     r"当前[的的]?|现状[的的]?|当下[的的]?",
     # Chinese: time-of-day
     r"几点|几号|几月|星期几|周几|礼拜几",
+    # English: time-of-day
+    # v2.0.32.4 — eval Stage 5.5 (2026-10-05) i18n parity fix. Pre-fix
+    # "What is the current time in Beijing?" matched simple_fact
+    # ("what is X") and routed to ``react_generate_direct`` (no
+    # tools bound) → LLM answered "I don't have access to a
+    # real-time clock" instead of calling ``get_current_time``.
+    # Added the missing "current time/date" + "what time is it"
+    # patterns so EN time queries get the same fast-path treatment
+    # as CN ("现在几点").
+    r"\bcurrent\s+(time|date|day|moment|hour|minute|second)\b",
+    r"\bthe\s+(current\s+)?time\b",
+    r"\bwhat\s+time\s+(is\s+it|is\s+there|now)\b",
+    r"\bwhat\s+time\b",
     # English
     r"\btoday\b|\btonight\b|\byesterday\b|\btomorrow\b",
     r"\bjust\s+now\b|\bright\s+now\b|\bcurrently\b",

@@ -280,8 +280,14 @@ class AsyncHarnessRunner:
                 return f"upload_http:{type(exc).__name__}:{exc}"
             if resp.status_code >= 400:
                 return f"upload_status:{resp.status_code}"
-        # Poll for indexed status — default timeout 30s
-        return await self._poll_documents_indexed(thread_id, timeout_s=30.0)
+        # Poll for indexed status — default timeout 120s.
+        # Eval Stage 5.5 (2026-10-05) bumped from 30s → 120s after
+        # observing docling on Python.md (high-density code, ~50KB)
+        # routinely takes 35-60s on BGE-M3 CPU. 30s caused 3/15
+        # upload_failed in golden.yaml (golden-008-zh/en, 009-zh).
+        # 120s gives ~2x headroom for the heaviest corpus files
+        # without blocking the runner on actual failures.
+        return await self._poll_documents_indexed(thread_id, timeout_s=120.0)
 
     async def _poll_documents_indexed(
         self, thread_id: str, *, timeout_s: float

@@ -7,6 +7,11 @@
 
 ## 2026-10 · 评估 harness(eval v1)
 
+### v2.0.32.4 — 2026-10-06 · Eval infra fixes · upload timeout 120s + EN time-of-day regex
+- **修改了什么:** `tests/eval/runner.py:_poll_documents_indexed` caller 30s → 120s timeout(dockling 处理 Python.md 高密度代码要 35-60s,30s 误杀 3/15 case upload_failed);`src/agent/nodes/intent_analysis.py:_TIME_NEED_PATTERNS` 加 4 EN 时间-of-day 模式(`\bcurrent\s+(time|date|day|moment|hour|minute|second)\b` / `\bthe\s+(current\s+)?time\b` / `\bwhat\s+time\s+(is|now)\b` / `\bwhat\s+time\b`)修复 "What is the current time in Beijing?" route_decision=direct 误判;i18n parity test 同步更新。
+- **原理:** Eval Stage 5.5 (2026-10-05) 跑出 26.7% pass rate,3 orthogonal root cause 排除:① P0 Anthropic 529 雪崩(等 quota 恢复)② P1 eval runner 30s upload timeout 太短,Python.md / 复杂 docx docling > 30s 误杀 ③ P2 EN time-of-day 模式 regex 缺失,golden-001-en "What is the current time in Beijing?" 误入 simple_fact fast-path → route_decision=direct → "I don't have access to a real-time clock" 假 refusal(中文版 PASS,en 漏)。本 commit 修 ② ③ ①(quota)需外部 unlock。
+- **有何提升:** 14/14 intent_analysis tests PASSED(含 NEW EN time-of-day),32/32 defensive override tests 0 回归,35/35 eval runner mocked pytest 0 回归;backend log 验证 EN time query 现在 route→retrieve(不再 direct);**invariant**:CN 时间 regex 不动 / `simple_fact` fast-path 不动(只是 EN time 在它之前 early-out)/ eval runner 30s → 120s 是 timeout(不是 upload 本身)/ 生产代码 0 改动除 `_TIME_NEED_PATTERNS` additive 4 pattern。
+
 ### v2.0.32.3 — 2026-10-05 · Phase 1.5 真 bug fix · defensive override 多 TM 综合 fallback
 - **修改了什么:** `src/agent/nodes/_defensive_override_registry.py:apply_defensive_overrides` 反转 iteration 命中 first miss 立即 return → 改为 dedupe 到 LATEST TM per covered tool + check ALL covered-tool marker + 任一 miss 时返回 ALL covered-tool fallback `\n\n` join + metric 按 tool 粒度 bump;`tests/test_defensive_override_registry.py` +7 NEW pytest 锁 multi-TM 行为。
 - **原理:** Eval Phase 1 暴露 30% pass rate 根因 = defensive override 只用 FIRST tool call TM data,丢后续 retrieval chunks(PDF chunks 被丢,只剩 time 结果)。Phase 1.5 让 override 路径用 every byte of TM data — never drop retrieval data because an unrelated tool's marker was missing。Same-tool multi-call dedupe 到 LATEST 保 v2.0.28.16 multi-turn invariant。
