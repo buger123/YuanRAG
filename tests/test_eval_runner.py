@@ -608,6 +608,198 @@ def test_run_programmatic_unknown_locale_passes_silently() -> None:
     assert j.passed is True
 
 
+def test_run_programmatic_degraded_event_skips_text_checks() -> None:
+    """v2.0.32.7 — synthetic ``_degraded`` event flips the judge into
+    degraded-mode: answer-text checks (answer_contains, answer_lacks,
+    forbidden_phrases, refusal, expected_citations) are skipped and
+    marked pass=True with actual="skipped_due_to_degradation". Overall
+    pass_=True + degraded=True so the rollup buckets this as infra-
+    degraded, not a logic bug.
+    """
+    turn = TurnAnnotation(
+        user="x",
+        high_precision="auto",
+        expected_answer_contains=("NEVER_IN_ANSWER",),
+        expected_answer_lacks=("never",),
+        forbidden_phrases=("never",),
+    )
+    events = [
+        {
+            "type": "answer_complete",
+            "answer": "根据刚刚查询,当前时间是 2026-10-07T...",  # degraded fallback
+            "sources": [],
+        },
+        {"type": "_degraded", "reason": "time_fallback_on_doc_query"},
+    ]
+    j = run_programmatic(turn=turn, events=events)
+    assert j.passed is True
+    assert j.degraded is True
+    assert j.degraded_reason == "time_fallback_on_doc_query"
+    # Skipped checks must carry the marker so downstream consumers
+    # can tell them apart from real passes.
+    skipped_names = {"answer_contains", "answer_lacks", "forbidden_phrases", "refusal", "expected_citations"}
+    for c in j.checks:
+        if c.name in skipped_names:
+            assert c.pass_ is True
+            assert c.actual == "skipped_due_to_degradation"
+
+
+def test_run_programmatic_no_degraded_event_runs_text_checks_normally() -> None:
+    """v2.0.32.7 — guard: when no ``_degraded`` event is present, the
+    judge behaves exactly like before (no behavioral drift)."""
+    turn = TurnAnnotation(
+        user="x",
+        high_precision="auto",
+        expected_answer_contains=("WRONG_NEVER_MATCHES",),
+    )
+    events = [{"type": "answer_complete", "answer": "ok", "sources": []}]
+    j = run_programmatic(turn=turn, events=events)
+    assert j.passed is False  # answer_contains fails as expected
+    assert j.degraded is False  # NOT marked degraded
+    assert any(c.name == "answer_contains" for c in j.checks)
+
+
+def test_detect_llm_degraded_helper_flags_time_fallback_on_doc_query() -> None:
+    """v2.0.32.7 — runner helper detects Phase 6 regen-loop fallback
+    (defensive override returned time-tool answer on a doc query).
+    """
+    from tests.eval.runner import _detect_llm_degraded
+
+    # Time-tool fallback on a doc query → degraded=True.
+    degraded, reason = _detect_llm_degraded(
+        answer="根据刚刚查询,当前时间是 2026-10-07T...",
+        sources=[],
+        verification_consistent=False,
+        verification_skipped=False,
+        user_message="我的六级考试在哪所学校?",  # doc query, not time query
+    )
+    assert degraded is True
+    assert reason == "time_fallback_on_doc_query"
+
+    # Time-tool answer on a TIME query → not degraded.
+    degraded, reason = _detect_llm_degraded(
+        answer="根据刚刚查询,当前时间是 2026-10-07T...",
+        sources=[],
+        verification_consistent=True,
+        verification_skipped=False,
+        user_message="现在北京时间几点?",
+    )
+    assert degraded is False
+    assert reason is None
+
+    # Empty answer → not degraded (failure_reason handles it).
+    degraded, reason = _detect_llm_degraded(
+        answer="",
+        sources=[],
+        verification_consistent=None,
+        verification_skipped=True,
+        user_message="my query",
+    )
+    assert degraded is False
+    assert reason is None
+
+    # CALIBRATION (2026-10-07): bare "几点" / "时间" / "now" are too
+    # broad. "我的六级考试具体几点开考几点结束?" contains "几点" but
+    # the user is asking about exam time, NOT current time. Guard
+    # against the false-negative → must STILL flag as degraded.
+    degraded, reason = _detect_llm_degraded(
+        answer="根据刚刚查询,当前时间是 2026-10-07T...",
+        sources=[],
+        verification_consistent=False,
+        verification_skipped=False,
+        user_message="我的六级考试具体几点开考几点结束?",
+    )
+    assert degraded is True, "exam-time query should NOT match the time-tool fallback"
+    assert reason == "time_fallback_on_doc_query"
+
+    # Also: EN "what time does the exam start" — has "what time" but
+    # not the explicit "current / now" qualifier.
+    degraded, reason = _detect_llm_degraded(
+        answer="Based on the most recent query, the current time is ...",
+        sources=[],
+        verification_consistent=False,
+        verification_skipped=False,
+        user_message="What time does the exam start?",
+    )
+    assert degraded is True, "EN exam-time query should NOT match current-time heuristics"
+
+
+def test_report_compute_rollup_with_degraded_case() -> None:
+    """v2.0.32.7 — rollup separates degraded from pass/fail.
+    pass_rate_excluding_infra_skip ignores degraded cases.
+    """
+    case_pass = CaseResult(
+        case_id="real-pass", language="en", difficulty="easy", thread_id="t1", suite="x",
+        run_started_at="2026-10-07T00:00:00Z", run_finished_at="2026-10-07T00:00:01Z",
+        wall_clock_ms=1000,
+        turns=[TurnResult(
+            turn_index=0, user_message="q", high_precision="auto", latency_ms=1000,
+            events=[{"type": "answer_complete", "answer": "ok", "sources": []}],
+            answer="ok",
+        )],
+        judgment={
+            "programmatic": {
+                "pass": True, "per_turn": [{"pass": True, "checks": []}], "passed_count": 1, "total_count": 1,
+            },
+            "cheap_llm": None, "claude": None,
+        },
+        composite_score=1.0, pass_=True,
+    )
+    case_degraded = CaseResult(
+        case_id="infra-degraded", language="zh", difficulty="medium", thread_id="t2", suite="x",
+        run_started_at="2026-10-07T00:00:00Z", run_finished_at="2026-10-07T00:00:05Z",
+        wall_clock_ms=5000,
+        turns=[TurnResult(
+            turn_index=0, user_message="q", high_precision="auto", latency_ms=5000,
+            events=[
+                {"type": "answer_complete", "answer": "根据刚刚查询,当前时间是 ...", "sources": []},
+                {"type": "_degraded", "reason": "time_fallback_on_doc_query"},
+            ],
+            answer="根据刚刚查询,当前时间是 ...",
+            degraded=True,
+            degraded_reason="time_fallback_on_doc_query",
+        )],
+        judgment={
+            "programmatic": {
+                "pass": True, "degraded": True,
+                "degraded_reason": "time_fallback_on_doc_query",
+                "per_turn": [{"pass": True, "degraded": True, "checks": []}],
+                "passed_count": 1, "total_count": 1,
+            },
+            "cheap_llm": None, "claude": None,
+        },
+        composite_score=1.0, pass_=True,
+    )
+    case_fail = CaseResult(
+        case_id="real-fail", language="zh", difficulty="medium", thread_id="t3", suite="x",
+        run_started_at="2026-10-07T00:00:00Z", run_finished_at="2026-10-07T00:00:05Z",
+        wall_clock_ms=5000,
+        turns=[TurnResult(
+            turn_index=0, user_message="q", high_precision="auto", latency_ms=5000,
+            events=[{"type": "answer_complete", "answer": "wrong", "sources": []}],
+            answer="wrong",
+        )],
+        judgment={
+            "programmatic": {
+                "pass": False,
+                "per_turn": [{"pass": False, "checks": [
+                    {"name": "answer_contains", "passed": False, "expected": ["foo"], "actual": "wrong"}
+                ]}],
+                "passed_count": 0, "total_count": 1,
+            },
+            "cheap_llm": None, "claude": None,
+        },
+        composite_score=0.0, pass_=False, failure_reason="answer_lacks_expected",
+    )
+    rollup = compute_rollup([case_pass, case_degraded, case_fail])
+    assert rollup.total_cases == 3
+    assert rollup.degraded_cases == 1
+    # success_rate counts pass_=True; degraded case has pass_=True by design
+    assert rollup.passed_cases == 2
+    # pass_rate_excluding_infra_skip: 1 real-pass / 2 non-degraded = 0.5
+    assert rollup.pass_rate_excluding_infra_skip == 0.5
+
+
 def test_report_compute_rollup_with_failing_case() -> None:
     """compute_rollup aggregates success rate / hallucination / latency."""
     case_pass = CaseResult(

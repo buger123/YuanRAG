@@ -43,6 +43,16 @@ class RollupMetrics:
     hallucination_rate: float
     refusal_accuracy: Optional[float]
     citation_coverage: Optional[float]
+    # v2.0.32.7 (Stage 5.8 follow-up, 2026-10-07) — backend-degraded
+    # bucket. ``degraded_cases`` = cases where the runner detected
+    # Phase 6 regen-loop defensive-override fallback (time-tool
+    # answer on a doc query, etc.). These are NOT real logic bugs;
+    # they're infrastructure degradation (quota / LLM hiccup / regen
+    # loop). ``pass_rate_excluding_infra_skip`` is the success rate
+    # computed over the NON-degraded subset, so operators can read the
+    # "real" pass rate at a glance.
+    degraded_cases: int = 0
+    pass_rate_excluding_infra_skip: Optional[float] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -59,6 +69,8 @@ class RollupMetrics:
             "hallucination_rate": self.hallucination_rate,
             "refusal_accuracy": self.refusal_accuracy,
             "citation_coverage": self.citation_coverage,
+            "degraded_cases": self.degraded_cases,
+            "pass_rate_excluding_infra_skip": self.pass_rate_excluding_infra_skip,
         }
 
 
@@ -67,6 +79,24 @@ def compute_rollup(results: list[CaseResult]) -> RollupMetrics:
     total = len(results)
     passed = sum(1 for r in results if r.pass_)
     success_rate = passed / total if total else 0.0
+
+    # v2.0.32.7 (Stage 5.8 follow-up, 2026-10-07) — backend-degraded
+    # bucket. Read per-turn `degraded` flags (set by the runner's
+    # `_detect_llm_degraded` helper + surfaced by programmatic judge).
+    # A case counts as degraded if ANY of its turns is degraded. Compute
+    # pass_rate_excluding_infra_skip over the non-degraded subset so
+    # operators see the "real" pass rate without infrastructure noise.
+    degraded_count = 0
+    for r in results:
+        if any(t.degraded for t in r.turns):
+            degraded_count += 1
+    non_degraded = [
+        r for r in results if not any(t.degraded for t in r.turns)
+    ]
+    if non_degraded:
+        pass_rate_excl = sum(1 for r in non_degraded if r.pass_) / len(non_degraded)
+    else:
+        pass_rate_excl = None
 
     # Failure mode breakdown — by failure_reason + per-turn programmatic failure
     failure_modes: Counter[str] = Counter()
@@ -186,6 +216,8 @@ def compute_rollup(results: list[CaseResult]) -> RollupMetrics:
         hallucination_rate=hallucination_rate,
         refusal_accuracy=refusal_accuracy,
         citation_coverage=citation_coverage,
+        degraded_cases=degraded_count,
+        pass_rate_excluding_infra_skip=pass_rate_excl,
     )
 
 
@@ -227,6 +259,12 @@ def render_markdown(*, suite: str, timestamp: str, rollup: RollupMetrics, result
     lines.append(f"**Total cases:** {rollup.total_cases}  ")
     lines.append(f"**Passed:** {rollup.passed_cases}  ")
     lines.append(f"**Success rate:** {rollup.success_rate:.1%}  ")
+    if rollup.degraded_cases:
+        lines.append(f"**Backend-degraded cases:** {rollup.degraded_cases}  ")
+    if rollup.pass_rate_excluding_infra_skip is not None:
+        lines.append(
+            f"**Pass rate (excl. infra-degraded):** {rollup.pass_rate_excluding_infra_skip:.1%}  "
+        )
     lines.append("")
 
     # Rollup metrics table
@@ -248,6 +286,12 @@ def render_markdown(*, suite: str, timestamp: str, rollup: RollupMetrics, result
         lines.append(f"| Tool calls / p95 | {rollup.tool_call_distribution.get('p95', 0)} |")
     if rollup.token_distribution:
         lines.append(f"| Tokens / p95 | {rollup.token_distribution.get('p95', 0)} |")
+    if rollup.pass_rate_excluding_infra_skip is not None:
+        lines.append(
+            f"| Pass rate (excl. infra-degraded) | {rollup.pass_rate_excluding_infra_skip:.1%} |"
+        )
+    if rollup.degraded_cases:
+        lines.append(f"| Backend-degraded cases | {rollup.degraded_cases} |")
     lines.append("")
 
     # Failure mode breakdown
@@ -263,22 +307,38 @@ def render_markdown(*, suite: str, timestamp: str, rollup: RollupMetrics, result
     # Per-case table
     lines.append("## Per-case results")
     lines.append("")
-    lines.append("| case_id | difficulty | lang | pass | composite | tool_calls | latency_ms | cost_usd | failure_reason |")
+    lines.append("| case_id | difficulty | lang | pass | composite | tool_calls | latency_ms | cost_usd | degraded |")
     lines.append("|---|---|---|---|---|---|---|---|---|")
     for r in results:
         last_turn = r.turns[-1] if r.turns else None
         tool_calls = sum(t.tool_call_count for t in r.turns)
         latency = last_turn.latency_ms if last_turn else r.wall_clock_ms
         cost = sum((t.cost_usd for t in r.turns), Decimal(0))
+        # v2.0.32.7 — surface the degraded flag in the per-case table
+        # so operators can spot infra-degraded rows at a glance.
+        any_degraded = any(t.degraded for t in r.turns)
+        degraded_marker = "DEGRADED" if any_degraded else "-"
+        if any_degraded:
+            degraded_marker = f"DEGRADED ({next((t.degraded_reason for t in r.turns if t.degraded), '')})"
+        status = "PASS" if r.pass_ else "FAIL"
+        if any_degraded:
+            status = "INFRA-DEGRADED"  # not a real logic-bug fail
         lines.append(
             f"| {r.case_id} | {r.difficulty} | {r.language} | "
-            f"{'PASS' if r.pass_ else 'FAIL'} | {r.composite_score:.2f} | "
-            f"{tool_calls} | {latency} | {cost} | {r.failure_reason or '-'} |"
+            f"{status} | {r.composite_score:.2f} | "
+            f"{tool_calls} | {latency} | {cost} | {degraded_marker} |"
         )
     lines.append("")
 
-    # Worst-N failing cases (top 5)
-    failing = [r for r in results if not r.pass_]
+    # Worst-N failing cases (top 5). v2.0.32.7 — exclude backend-
+    # degraded cases; they're infra noise, not real logic bugs.
+    # Degraded cases are surfaced separately in the per-case table
+    # (with `INFRA-DEGRADED` marker) and counted in the
+    # `Backend-degraded cases` rollup line.
+    failing = [
+        r for r in results
+        if not r.pass_ and not any(t.degraded for t in r.turns)
+    ]
     failing.sort(key=lambda r: r.composite_score)
     if failing:
         lines.append("## Worst failing cases")
@@ -325,8 +385,28 @@ def render_console_table(rollup: RollupMetrics, results: list[CaseResult]) -> st
         lines.append(f"Refusal accuracy (adv): {rollup.refusal_accuracy:.1%}")
     if rollup.citation_coverage is not None:
         lines.append(f"Citation coverage: {rollup.citation_coverage:.1%}")
+    # v2.0.32.7 — surface degraded bucket in console output so the
+    # operator's terminal view distinguishes infra-degraded from real
+    # logic bugs at a glance.
+    if rollup.degraded_cases:
+        lines.append(
+            f"Backend-degraded cases: {rollup.degraded_cases} | "
+            f"Pass rate (excl. infra-degraded): "
+            f"{rollup.pass_rate_excluding_infra_skip:.1%}"
+            if rollup.pass_rate_excluding_infra_skip is not None
+            else f"Backend-degraded cases: {rollup.degraded_cases}"
+        )
     lines.append("")
-    failing = sorted([r for r in results if not r.pass_], key=lambda r: r.composite_score)
+    # v2.0.32.7 — exclude backend-degraded cases from "Worst failing
+    # cases" listing; they belong to the INFRA-DEGRADED bucket, not
+    # the real logic-bug bucket.
+    failing = sorted(
+        [
+            r for r in results
+            if not r.pass_ and not any(t.degraded for t in r.turns)
+        ],
+        key=lambda r: r.composite_score,
+    )
     if failing:
         lines.append("Worst-3 failing cases:")
         for r in failing[:3]:

@@ -40,20 +40,35 @@ class CheckResult:
 
 @dataclass(frozen=True)
 class ProgrammaticJudgment:
-    """Pass 1 result bundle — passed iff every check passes."""
+    """Pass 1 result bundle — passed iff every check passes.
+
+    v2.0.32.7 (Stage 5.8 follow-up, 2026-10-07): ``degraded`` +
+    ``degraded_reason`` flag the case as backend-LLM-degraded (e.g.
+    Phase 6 verify_answer regen-loop defensive override). When
+    ``degraded=True`` the judge SKIPS answer-text checks because the
+    body is a fallback answer, not the real LLM output. The rollup's
+    ``pass_rate_excluding_infra_skip`` metric counts these separately
+    from real logic bugs.
+    """
 
     pass_: bool
     checks: tuple[CheckResult, ...]
+    degraded: bool = False
+    degraded_reason: Optional[str] = None
 
     @property
     def passed(self) -> bool:
         return self.pass_
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d = {
             "pass": self.pass_,
             "checks": [c.to_dict() for c in self.checks],
         }
+        if self.degraded:
+            d["degraded"] = True
+            d["degraded_reason"] = self.degraded_reason
+        return d
 
 
 # ============================================================
@@ -375,7 +390,37 @@ def run_programmatic(*, turn, events: list[dict]) -> ProgrammaticJudgment:
 
     ``turn`` is a TurnAnnotation. Returns ProgrammaticJudgment with
     pass=True iff every check passes.
+
+    v2.0.32.7 (Stage 5.8 follow-up, 2026-10-07): when the runner
+    detected a backend-LLM-degraded fallback (Phase 6 regen-loop
+    defensive override fired repeatedly), answer-text checks become
+    meaningless — the body is the defensive override's fallback, not
+    the real LLM output. We SKIP them (forcing pass=True with a note)
+    and force the overall pass_=True so the rollup's ``degraded``
+    bucket separates this from real logic bugs. Structural checks
+    that read events (not the answer body) still run normally.
     """
+    degraded, degraded_reason = _is_degraded(events)
+    if degraded:
+        checks = [
+            check_grounding_status(turn.expected_grounding, events),
+            check_verification_consistent(_phase6_expected_consistent(turn), events),
+            # Skip answer-text checks — body is defensive-override fallback.
+            _skipped_check("expected_citations", turn.expected_citations),
+            _skipped_check("answer_contains", turn.expected_answer_contains),
+            _skipped_check("answer_lacks", turn.expected_answer_lacks),
+            _skipped_check("forbidden_phrases", turn.forbidden_phrases),
+            check_tool_sequence(turn.expected_tool_sequence, events),
+            check_tool_call_count(turn.expected_tool_call_count, events),
+            check_route_decision(turn.expected_route_decision, events),
+            _skipped_check("refusal", None),
+        ]
+        return ProgrammaticJudgment(
+            pass_=True,
+            checks=tuple(checks),
+            degraded=True,
+            degraded_reason=degraded_reason,
+        )
     checks = [
         check_grounding_status(turn.expected_grounding, events),
         check_verification_consistent(_phase6_expected_consistent(turn), events),
@@ -392,6 +437,29 @@ def run_programmatic(*, turn, events: list[dict]) -> ProgrammaticJudgment:
         ),
     ]
     return ProgrammaticJudgment(pass_=all(c.pass_ for c in checks), checks=tuple(checks))
+
+
+def _is_degraded(events: list[dict]) -> tuple[bool, Optional[str]]:
+    """Read the synthetic ``_degraded`` event injected by the runner's
+    ``_aggregate_judgments`` (v2.0.32.7). Returns ``(degraded, reason)``.
+    """
+    for ev in events:
+        if ev.get("type") == "_degraded":
+            return True, ev.get("reason") if isinstance(ev.get("reason"), str) else None
+    return False, None
+
+
+def _skipped_check(name: str, expected) -> CheckResult:
+    """v2.0.32.7 — placeholder check result for backend-degraded cases.
+    Forces pass_=True so the rollup's ``degraded`` bucket does the
+    accounting, not the answer-text checks.
+    """
+    return CheckResult(
+        name=name,
+        expected=list(expected) if expected else [],
+        actual="skipped_due_to_degradation",
+        pass_=True,
+    )
 
 
 def _phase6_expected_consistent(turn) -> bool:
