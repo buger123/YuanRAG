@@ -20,15 +20,26 @@ the field to ``FSMEvent`` as ``NotRequired[RouteDecision]``, and
 adding a runtime assertion in the two citation helpers that fails
 loudly on a typo instead of silently short-circuiting.
 
+v2.0.32.5 (Stage 5.7, 2026-10-07) — eval harness caught Phase 8
+(v2.0.29.9) verbatim extraction path that added 2 new values
+(``"extractive"`` + ``"extractive_refusal"``) in
+``src/agent/nodes/react_generate_extractive.py`` without registering
+them in this Literal. ``renumber_citations_and_sources``
+(``src/agent/citations.py:229``) asserts ``route_decision in
+get_args(RouteDecision)`` — verbatim cases hit AssertionError and
+got empty answers. The Literal extended to 4 values; this test
+updated to pin the new vocabulary.
+
 These tests pin the new contract:
 
 1. ``RouteDecision`` is the closed Literal exported from
-   :mod:`src.agent.types`.
+   :mod:`src.agent.types` (4 values as of v2.0.32.5).
 2. ``FSMEvent`` declares ``route_decision`` (typed).
 3. ``_intent_to_route_decision`` return annotation is the Literal.
 4. ``filter_sources_to_cited`` / ``renumber_citations_and_sources``
    raise ``AssertionError`` on a typo (``"retreive"``) and accept
-   ``None`` / ``"direct"`` / ``"retrieve"`` without raising.
+   ``None`` / ``"direct"`` / ``"retrieve"`` / ``"extractive"`` /
+   ``"extractive_refusal"`` without raising.
 """
 from __future__ import annotations
 
@@ -43,15 +54,30 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
-def test_route_decision_is_literal_direct_retrieve():
-    """``RouteDecision`` is a closed Literal of exactly the two
-    route values the citation guards recognize. New values (e.g.
-    ``"hybrid"``) must be added here first so the assertion in
-    ``citations.py`` stays in sync.
+def test_route_decision_is_literal_4_values():
+    """``RouteDecision`` is a closed Literal of exactly the four
+    route values the citation guards recognize.
+
+    v2.0.22 (Item 7 Step 10) — original 2 values: ``"direct"``,
+    ``"retrieve"``.
+
+    v2.0.32.5 (Stage 5.7, 2026-10-07) — Phase 8 verbatim extraction
+    (v2.0.29.9) added 2 more values (``"extractive"`` +
+    ``"extractive_refusal"``) that the citation guards must
+    recognize too. New values must be added here first so the
+    assertion in ``citations.py`` stays in sync — the eval harness
+    caught the gap when verbatim cases (golden-008-verbatim-zh /
+    golden-008-verbatim-en) hit AssertionError and returned empty
+    answers.
     """
     from src.agent.types import RouteDecision
 
-    assert get_args(RouteDecision) == ("direct", "retrieve")
+    assert get_args(RouteDecision) == (
+        "direct",
+        "retrieve",
+        "extractive",
+        "extractive_refusal",
+    )
 
 
 def test_route_decision_is_in_types_dunder_all():
@@ -166,10 +192,17 @@ def _build_sources() -> list[dict]:
     ]
 
 
-@pytest.mark.parametrize("valid_value", ["direct", "retrieve"])
+@pytest.mark.parametrize(
+    "valid_value",
+    ["direct", "retrieve", "extractive", "extractive_refusal"],
+)
 def test_filter_sources_to_cited_accepts_valid_literal_members(valid_value):
-    """The two closed-vocabulary members pass the entry assertion
+    """The four closed-vocabulary members pass the entry assertion
     and reach the existing guard (``!= "retrieve"`` short-circuit).
+
+    v2.0.32.5 — Phase 8 verbatim extraction values added. Pre-fix,
+    ``extractive`` + ``extractive_refusal`` raised AssertionError
+    here too (the same bug the eval harness caught end-to-end).
     """
     from src.agent.citations import filter_sources_to_cited
 
@@ -221,8 +254,19 @@ def test_filter_sources_to_cited_asserts_on_typo(typo):
     assert repr(typo) in str(excinfo.value)
 
 
-@pytest.mark.parametrize("valid_value", ["direct", "retrieve"])
+@pytest.mark.parametrize(
+    "valid_value",
+    ["direct", "retrieve", "extractive", "extractive_refusal"],
+)
 def test_renumber_citations_and_sources_accepts_valid_literal_members(valid_value):
+    """v2.0.32.5 — Phase 8 verbatim extraction values added.
+
+    The eval harness caught this bug end-to-end (golden-008 cases
+    returned empty answers because ``extractive_refusal`` hit the
+    renumber helper's AssertionError). The mock-level test pins the
+    contract so a future operator doesn't have to wait for an end-to-end
+    eval run to discover the gap.
+    """
     from src.agent.citations import renumber_citations_and_sources
 
     sources = _build_sources()

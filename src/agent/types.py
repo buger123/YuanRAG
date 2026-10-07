@@ -36,7 +36,23 @@ from typing import Any, AsyncIterator, Callable, Literal, TypedDict
 # ``assert route_decision in (None, *get_args(RouteDecision))`` at
 # the helper entry catch typos loudly rather than silently treating
 # them as the ``direct`` branch.
-RouteDecision = Literal["direct", "retrieve"]
+# v2.0.32.5 (Stage 5.7 real bug fix, 2026-10-07) — eval harness caught
+# Phase 8 (v2.0.29.9) verbatim extraction path that added 2 new
+# route_decision values (``extractive`` + ``extractive_refusal``) in
+# ``src/agent/nodes/react_generate_extractive.py`` but DID NOT register
+# them in this Literal. ``renumber_citations_and_sources``
+# (``src/agent/citations.py:229``) asserts ``route_decision in
+# get_args(RouteDecision)`` at helper entry — high_precision=on cases
+# (golden-008-verbatim-zh / golden-008-verbatim-en) hit
+# ``AssertionError: route_decision must be None or one of ('direct',
+# 'retrieve'), got 'extractive_refusal'`` → Agent run failed →
+# empty answer. Pre-fix user couldn't see this because golden-001
+# (the only case they manually tested) uses ``retrieve`` not
+# ``extractive``. **principle (per [[v2.0.28.18]])**: actual fix is
+# often much simpler than planned defense-in-depth; identify the
+# load-bearing 1 LOC. This 1-line Literal extension unlocks 2 eval
+# cases (verbatim-zh + verbatim-en).
+RouteDecision = Literal["direct", "retrieve", "extractive", "extractive_refusal"]
 
 
 # An async-generator node implementation. Each ``NODES`` entry's
