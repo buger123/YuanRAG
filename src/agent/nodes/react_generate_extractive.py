@@ -47,6 +47,7 @@ from src.agent.state import AgentState
 from src.core.logging import logger
 from src.llm.factory import build_chat_model
 from src.llm.prompts import EXTRACTIVE_SYSTEM, REFUSAL_TEMPLATES
+from src.agent.nodes.retrieve import retrieve_hybrid_async
 
 
 def _build_sources(docs: list[Document], *, max_count: int = 8) -> list[dict]:
@@ -122,6 +123,42 @@ async def react_generate_extractive(
         or ""
     )
 
+    # v2.0.32.6 (Stage 5.8 real bug fix, 2026-10-07) — inline
+    # retrieval load-bearing. The FSM (``fsm.after_intent``) routes
+    # ``intent=qa_complex + high_precision=on`` DIRECTLY to
+    # ``react_generate_extractive``, SKIPPING the
+    # ``react_agent → tools → retrieve`` path that normally
+    # populates ``state["documents"]``. Pre-fix, every verbatim
+    # turn fell into the empty-docs refusal fallback below — the
+    # 33.3% eval ceiling's golden-008-verbatim-zh/en root cause.
+    # Phase 8 [[v2.0.29.9]] memory line 121 says "Phase 8 runs
+    # AFTER retrieval" but the code never wired the inline retrieve
+    # call; this 1-node fix mirrors the ``summary_path`` pattern
+    # (which does inline retrieval for summary intents). Principle
+    # (per [[v2.0.28.18]]): actual fix is often much simpler than
+    # planned defense-in-depth — load-bearing 1 node function call.
+    #
+    # Cost: ~200-500 ms on first verbatim turn per thread (BGE-M3
+    # embed + LanceDB hybrid search). Same cost as the normal
+    # path's first retrieve call, so no new latency surface.
+    #
+    # Fall-through on retrieval failure: log + continue with empty
+    # docs → refusal fallback below fires with honest "no docs"
+    # template. Mirrors summary_path's behavior on storage hiccup.
+    if not docs:
+        try:
+            ret = await retrieve_hybrid_async(state)
+            docs = list(ret.get("documents") or [])
+            retrieval_status = ret.get("retrieval_status") or retrieval_status
+        except Exception as exc:
+            logger.warning(
+                "react_generate_extractive: inline retrieval failed: "
+                "%s: %s — falling through with empty docs (refusal "
+                "fallback will fire)",
+                type(exc).__name__, exc,
+            )
+            # Leave docs empty; refusal fallback below handles it.
+
     # ---- Branch 1: refusal fallback (empty / low_relevance) ----
     if not docs or retrieval_status in ("empty", "empty_bulk", "low_relevance"):
         template_key = retrieval_status if retrieval_status in REFUSAL_TEMPLATES else "empty"
@@ -142,6 +179,12 @@ async def react_generate_extractive(
             "sources": [],
             "source_kinds": [],
             "high_precision": "on",
+            # v2.0.32.6 — propagate inline-retrieval output so
+            # ``should_check_hallucination`` predicate sees fresh
+            # ``documents`` + ``retrieval_status`` (matches the
+            # ``summary_path`` pattern at fsm.py:639-644).
+            "documents": docs,
+            "retrieval_status": retrieval_status,
         })
         return
 
@@ -213,6 +256,16 @@ async def react_generate_extractive(
         # Preserve the verbatim-mode flag across the FSM so the
         # history / checkpointer sees this turn was extracted.
         "high_precision": "on",
+        # v2.0.32.6 — propagate inline-retrieval output so the
+        # verification chain (``after_react_generate_extractive``
+        # predicate → ``verify_answer`` → ``check_hallucination``)
+        # sees the same ``documents`` the extractive LLM saw.
+        # Pre-fix this field was missing, so the predicate
+        # ``docs_for_hallucination`` walked the empty
+        # ``state["documents"]`` fallback chain and skipped the
+        # whole verification chain.
+        "documents": docs,
+        "retrieval_status": retrieval_status,
     })
 
 

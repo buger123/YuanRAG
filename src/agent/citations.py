@@ -159,7 +159,13 @@ def filter_sources_to_cited(
     # direct, no matter what". ``None`` means the runner didn't
     # bother to look (legacy / test path), and we fall back to the
     # legacy [n]-based filter so existing tests don't break.
-    if route_decision is not None and route_decision != "retrieve":
+    # v2.0.32.6 — ``extractive`` + ``extractive_refusal`` routes
+    # (Phase 8, v2.0.29.9) carry the same ``[n]``-cited sources as
+    # the normal ``retrieve`` path; they MUST run the cited-index
+    # filter like ``retrieve``, not the empty-source direct guard.
+    # Without this, the verbatim answer's ``[2]`` chip never reaches
+    # the sidebar (golden-008 eval fail).
+    if route_decision is not None and route_decision not in ("retrieve", "extractive"):
         return []
     cited = extract_cited_indices(answer)
     if not cited:
@@ -231,7 +237,9 @@ def renumber_citations_and_sources(
         f"{get_args(RouteDecision)!r}, got {route_decision!r}"
     )
     # Direct-path leak guard (v1.1.3 belt-and-suspenders).
-    if route_decision is not None and route_decision != "retrieve":
+    # v2.0.32.6 — see note on ``filter_sources_to_cited``. Treat
+    # ``extractive`` like ``retrieve`` for the [n] renumber.
+    if route_decision is not None and route_decision not in ("retrieve", "extractive"):
         return answer or "", []
     cited = extract_cited_indices(answer or "")
     if not cited:

@@ -378,3 +378,107 @@ def test_answer_complete_event_builder_does_not_take_route_decision():
 
     sig = signature(answer_complete)
     assert "route_decision" not in sig.parameters
+
+
+# ---------------------------------------------------------------------------
+# 7. v2.0.32.6 (Stage 5.8 real bug fix) — extractive routes must
+#    run the cited-index filter (NOT the empty-source direct guard).
+#    Pre-fix, ``extractive`` + ``extractive_refusal`` were dropped
+#    at the ``!= "retrieve"`` short-circuit and the verbatim
+#    answer's ``[n]`` chip never reached the sidebar (golden-008
+#    eval fail at 33.3% ceiling).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "route_decision",
+    ["extractive"],
+)
+def test_extractive_routes_run_cited_index_filter_not_direct_guard(
+    route_decision,
+):
+    """v2.0.32.6 — ``filter_sources_to_cited`` must keep the
+    cited-index filtering behavior for ``extractive``, NOT collapse
+    to the empty direct-path guard. Otherwise the verbatim answer's
+    ``[2]`` chip is filtered out (golden-008 eval fail).
+    """
+    from src.agent.citations import filter_sources_to_cited
+
+    sources = [
+        {"index": 1, "filename": "a.txt", "chunk_id": "c0", "doc_id": "d0"},
+        {"index": 2, "filename": "b.txt", "chunk_id": "c1", "doc_id": "d1"},
+        {"index": 3, "filename": "c.txt", "chunk_id": "c2", "doc_id": "d2"},
+    ]
+    out = filter_sources_to_cited(
+        sources, "answer cites only [2]", route_decision=route_decision,
+    )
+    # Only [2] survives — not the empty-list direct guard.
+    assert len(out) == 1
+    assert out[0]["index"] == 2
+    assert out[0]["filename"] == "b.txt"
+
+
+@pytest.mark.parametrize(
+    "route_decision",
+    ["extractive"],
+)
+def test_renumber_extractive_routes_renumber_dont_drop_sources(
+    route_decision,
+):
+    """v2.0.32.6 — ``renumber_citations_and_sources`` must treat
+    ``extractive`` like ``retrieve`` for the ``[n]`` renumber
+    pass. Pre-fix it returned ``(answer, [])`` at the
+    ``!= "retrieve"`` short-circuit and the verbatim answer's
+    chip never reached the sidebar.
+    """
+    from src.agent.citations import renumber_citations_and_sources
+
+    sources = [
+        {"index": 1, "filename": "a.txt", "chunk_id": "c0", "doc_id": "d0"},
+        {"index": 2, "filename": "b.txt", "chunk_id": "c1", "doc_id": "d1"},
+    ]
+    new_answer, new_sources = renumber_citations_and_sources(
+        "answer cites only [2]", sources,
+        route_decision=route_decision,
+    )
+    # Source 2 survives — not the empty-source direct guard.
+    assert len(new_sources) == 1
+    assert new_sources[0]["filename"] == "b.txt"
+
+
+def test_extractive_refusal_still_drops_sources():
+    """v2.0.32.6 — defensive guard for the refusal sibling.
+    ``extractive_refusal`` is the answer_complete payload
+    ``route_decision`` emitted when the verbatim node fell into
+    the empty-docs refusal template (e.g. no corpus matches).
+    That answer legitimately has zero sources, so the helper
+    MUST still return ``[]`` — same as ``direct``.
+    """
+    from src.agent.citations import filter_sources_to_cited
+
+    sources = [
+        {"index": 1, "filename": "a.txt", "chunk_id": "c0", "doc_id": "d0"},
+    ]
+    out = filter_sources_to_cited(
+        sources, "refusal template text", route_decision="extractive_refusal",
+    )
+    assert out == []
+
+
+def test_direct_path_still_drops_source_unchanged():
+    """v2.0.32.6 — defensive regression guard. The ``direct``
+    branch on conversational / greeting paths MUST keep returning
+    ``[]`` so we don't surface dangling chips on a no-doc answer.
+    The v2.0.32.6 fix only added ``extractive`` to the
+    ``"retrieve"`` whitelist; ``"direct"`` is still short-circuited.
+    """
+    from src.agent.citations import filter_sources_to_cited
+
+    sources = [
+        {"index": 1, "filename": "a.txt", "chunk_id": "c0", "doc_id": "d0"},
+        {"index": 2, "filename": "b.txt", "chunk_id": "c1", "doc_id": "d1"},
+    ]
+    out = filter_sources_to_cited(
+        sources, "answer cites [1] and [2]", route_decision="direct",
+    )
+    assert out == []

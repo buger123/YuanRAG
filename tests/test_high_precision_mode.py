@@ -292,10 +292,20 @@ def _drive(node_fn, state) -> list[Tuple[str, dict]]:
 
 
 def test_extractive_node_empty_docs_emits_refusal_template():
-    """docs=[] → emit REFUSAL_TEMPLATES['empty'] + empty sources + bump metric."""
+    """retrieval_status='empty' → emit REFUSAL_TEMPLATES['empty'] + empty sources + bump metric.
+
+    v2.0.32.6 (Stage 5.8) — tests updated to set ``documents=[_doc()]``
+    instead of ``[]``. Pre-fix the empty-docs was the refusal trigger;
+    post-fix the node calls inline ``retrieve_hybrid_async`` when
+    ``state["documents"]`` is empty, so we keep ``documents`` non-empty
+    to preserve the refusal path through ``retrieval_status="empty"``
+    (the OR condition still fires). The inline-retrieval path itself
+    is covered by ``test_extractive_node_inline_retrieval_*`` tests
+    added below.
+    """
     reset_all()
     state: AgentState = {
-        "documents": [],
+        "documents": [_doc()],
         "retrieval_status": "empty",
         "original_query": "verbatim quote please",
         "current_query": "verbatim quote please",
@@ -326,10 +336,17 @@ def test_extractive_node_low_relevance_emits_refusal():
 
 
 def test_extractive_node_empty_bulk_emits_refusal():
-    """retrieval_status='empty_bulk' → REFUSAL_TEMPLATES['empty_bulk']."""
+    """retrieval_status='empty_bulk' → REFUSAL_TEMPLATES['empty_bulk'].
+
+    v2.0.32.6 (Stage 5.8) — same test-shape update as
+    ``test_extractive_node_empty_docs_emits_refusal_template``: keep
+    ``documents=[_doc()]`` non-empty so the inline-retrieve path
+    doesn't fire and the ``retrieval_status="empty_bulk"`` OR trigger
+    keeps the test focused on the refusal template.
+    """
     reset_all()
     state: AgentState = {
-        "documents": [],
+        "documents": [_doc()],
         "retrieval_status": "empty_bulk",
         "original_query": "verbatim quote",
         "current_query": "verbatim quote",
@@ -337,6 +354,162 @@ def test_extractive_node_empty_bulk_emits_refusal():
     events = _drive(react_generate_extractive, state)
     assert events[0][1]["answer"] == REFUSAL_TEMPLATES["empty_bulk"]
     assert EXTRACTIVE_FALLBACK.get(reason="empty_bulk") >= 1.0
+
+
+# ---------------------------------------------------------------------------
+# v2.0.32.6 (Stage 5.8) — inline retrieval load-bearing fix.
+# The FSM (``fsm.after_intent``) routes ``intent=qa_complex +
+# high_precision=on`` DIRECTLY to ``react_generate_extractive``,
+# SKIPPING the ``react_agent → tools → retrieve`` path that
+# normally populates ``state["documents"]``. The fix adds an
+# inline ``retrieve_hybrid_async`` call when ``state["documents"]``
+# is empty, mirroring the ``summary_path`` pattern. These tests
+# pin the new behavior so a future refactor can't silently break
+# the verbatim case again (the bug shipped 2026-09-28 with v2.0.29.9
+# and was only caught on 2026-10-07 by the eval harness running
+# the verbatim case end-to-end).
+# ---------------------------------------------------------------------------
+
+
+def test_extractive_node_inline_retrieval_when_docs_empty():
+    """Empty ``state["documents"]`` triggers inline retrieval
+    via ``retrieve_hybrid_async``. Retrieval returns docs →
+    happy path emits verbatim answer with non-empty sources.
+
+    Pre-fix: ``state["documents"]`` was empty → refusal fallback
+    fired every time → no verbatim turn ever succeeded end-to-end
+    (Layer 5 hermetic tests constructed the empty state directly
+    and only tested the refusal branch).
+    """
+    reset_all()
+    state: AgentState = {
+        "documents": [],
+        "retrieval_status": None,  # ← unset; fix should trigger
+        "original_query": "verbatim quote",
+        "current_query": "verbatim quote",
+        "thread_id": "test-thread",
+    }
+
+    fake_resp = MagicMock()
+    fake_resp.content = "[1] 原文 Local Enclosing Global Built-in"
+    fake_model = MagicMock()
+    fake_model.ainvoke = AsyncMock(return_value=fake_resp)
+
+    # Patch retrieve_hybrid_async to return a populated doc list —
+    # simulates the normal "retrieval succeeded" branch.
+    ret_result = {
+        "documents": [_doc("LEGB stands for Local, Enclosing, Global, Built-in")],
+        "retrieval_status": "success",
+    }
+    with patch(
+        "src.agent.nodes.react_generate_extractive.retrieve_hybrid_async",
+        new=AsyncMock(return_value=ret_result),
+    ) as mock_retrieve, patch(
+        "src.agent.nodes.react_generate_extractive.build_chat_model",
+        return_value=fake_model,
+    ):
+        events = _drive(react_generate_extractive, state)
+
+    # Inline retrieve WAS called
+    mock_retrieve.assert_awaited_once()
+    # LLM happy path emitted answer_complete with sources
+    answer_kind, answer_payload = events[0]
+    assert answer_kind == "answer_complete"
+    assert "Local" in answer_payload["answer"]
+    assert answer_payload["sources"], "happy path must have non-empty sources"
+    # route_decision is "extractive" (not "extractive_refusal")
+    assert answer_payload["route_decision"] == "extractive"
+    # __delta__ propagates the populated documents + retrieval_status
+    delta_kind, delta = events[-1]
+    assert delta_kind == "__delta__"
+    assert len(delta["documents"]) == 1
+    assert delta["retrieval_status"] == "success"
+
+
+def test_extractive_node_inline_retrieval_skipped_when_docs_present():
+    """Non-empty ``state["documents"]`` → inline retrieval is
+    NOT called (avoids redundant BGE-M3 + LanceDB hit when
+    the FSM populates docs via the normal path — defensive against
+    future routing changes).
+
+    Mirrors the summary_path contract: only fetch when state is
+    missing the field.
+    """
+    state: AgentState = {
+        "documents": [_doc("already populated")],
+        "retrieval_status": "success",
+        "original_query": "verbatim quote",
+        "current_query": "verbatim quote",
+    }
+    fake_resp = MagicMock()
+    fake_resp.content = "[1] text"
+    fake_model = MagicMock()
+    fake_model.ainvoke = AsyncMock(return_value=fake_resp)
+    with patch(
+        "src.agent.nodes.react_generate_extractive.retrieve_hybrid_async",
+        new=AsyncMock(),
+    ) as mock_retrieve, patch(
+        "src.agent.nodes.react_generate_extractive.build_chat_model",
+        return_value=fake_model,
+    ):
+        _drive(react_generate_extractive, state)
+
+    mock_retrieve.assert_not_called()
+
+
+def test_extractive_node_inline_retrieval_failure_falls_through_to_refusal():
+    """``retrieve_hybrid_async`` raises → log warning + continue
+    with empty docs → refusal fallback fires (``empty`` template).
+
+    Fail-closed semantics match the rest of the refusal contract
+    (Phase 1 v2.0.29.1). Storage hiccups must NOT silently leak
+    fabricated verbatim quotes to the user.
+    """
+    reset_all()
+    state: AgentState = {
+        "documents": [],
+        "retrieval_status": None,
+        "original_query": "verbatim quote",
+        "current_query": "verbatim quote",
+    }
+    with patch(
+        "src.agent.nodes.react_generate_extractive.retrieve_hybrid_async",
+        new=AsyncMock(side_effect=RuntimeError("lancedb offline")),
+    ):
+        events = _drive(react_generate_extractive, state)
+
+    kind, payload = events[0]
+    assert kind == "answer_complete"
+    assert payload["answer"] == REFUSAL_TEMPLATES["empty"]
+    assert EXTRACTIVE_FALLBACK.get(reason="empty") >= 1.0
+
+
+def test_extractive_node_inline_retrieval_empty_result_emits_refusal():
+    """``retrieve_hybrid_async`` returns empty docs (real corpus
+    had nothing) → refusal fallback fires normally. Pins the
+    end-to-end contract: even with inline retrieval wired, a
+    genuinely-empty corpus still refuses rather than fabricates.
+    """
+    reset_all()
+    state: AgentState = {
+        "documents": [],
+        "retrieval_status": None,
+        "original_query": "verbatim quote",
+        "current_query": "verbatim quote",
+    }
+    ret_result = {
+        "documents": [],
+        "retrieval_status": "empty",
+    }
+    with patch(
+        "src.agent.nodes.react_generate_extractive.retrieve_hybrid_async",
+        new=AsyncMock(return_value=ret_result),
+    ):
+        events = _drive(react_generate_extractive, state)
+
+    kind, payload = events[0]
+    assert payload["answer"] == REFUSAL_TEMPLATES["empty"]
+    assert EXTRACTIVE_FALLBACK.get(reason="empty") >= 1.0
 
 
 def test_extractive_node_happy_path_stamps_verbatim_on_sources():
