@@ -588,6 +588,27 @@ def test_judge_route_decision() -> None:
     assert check_route_decision("extractive", events_verbatim).passed is True
 
 
+def test_judge_route_decision_any_accepts_all_valid_routings() -> None:
+    """v2.0.32.8 — "any" route_decision for summary-eligible doc-questions
+    where the cheap-model classifier is non-deterministic across qa_complex
+    and summary paths but BOTH produce correct answers."""
+    # direct path
+    assert check_route_decision("any", [{"type": "answer_complete", "sources": []}]).passed is True
+    # retrieve path
+    assert check_route_decision(
+        "any",
+        [
+            {"type": "tool_call_start", "name": "search"},
+            {"type": "answer_complete", "sources": [{"chunk_id": "c1"}]},
+        ],
+    ).passed is True
+    # extractive path
+    assert check_route_decision(
+        "any",
+        [{"type": "answer_complete", "sources": [{"chunk_id": "c1", "verbatim": True}]}],
+    ).passed is True
+
+
 def test_run_programmatic_returns_judgment() -> None:
     turn = TurnAnnotation(
         user="x",

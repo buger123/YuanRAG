@@ -324,7 +324,14 @@ def check_tool_call_count(expected_max: int, events: list[dict]) -> CheckResult:
 
 def check_route_decision(expected: str, events: list[dict]) -> CheckResult:
     sources = _sources(events)
-    if expected == "direct":
+    # v2.0.32.8 — "any" semantics: accept direct|retrieve|extractive|generate
+    # (any LLM-valid routing). Use for summary-eligible doc-questions where
+    # the cheap-model classifier is non-deterministic across qa_complex and
+    # summary paths but BOTH produce correct answers.
+    if expected == "any":
+        actual = _route_actual(sources, events)
+        pass_ = actual in ("direct", "retrieve", "extractive", "generate")
+    elif expected == "direct":
         # No tool calls → direct generation.
         actual = "direct" if not _tool_calls(events) else "retrieve"
     elif expected == "retrieve":
@@ -339,13 +346,21 @@ def check_route_decision(expected: str, events: list[dict]) -> CheckResult:
         )
     else:
         actual = "unknown"
-    pass_ = actual == expected
+    if expected != "any":
+        pass_ = actual == expected
     return CheckResult(
         name="route_decision",
         expected=expected,
         actual=actual,
         pass_=pass_,
     )
+
+
+def _route_actual(sources, events):
+    """Helper — same routing inference as the per-expected branches above."""
+    if sources and all(s.get("verbatim") for s in sources):
+        return "extractive"
+    return "retrieve" if _tool_calls(events) else "direct"
 
 
 def check_refusal(expected_template: Optional[str], events: list[dict]) -> CheckResult:

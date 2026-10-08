@@ -176,6 +176,24 @@ _SIMPLE_FACT_NEGATIVE_PATTERNS = (
     # Chinese: explanation / analysis / history (turns HIGH off)
     r"为什么|怎么[么办做来]|如何|解释|介绍|分析|比较|区别|历史|原理|演变|由来|原因|影响|意义",
     r"谈谈|说说|讲讲|聊聊|描述",
+    # v2.0.32.8 (Stage 5.8 follow-up, 2026-10-07) — eval harness
+    # found 3 doc-query cases mis-routed to simple_fact → direct
+    # generation (no retrieval). These queries contain a HIGH-matching
+    # definitional surface ("是什么" / "多少") but the analytical /
+    # contextual / doc-specific nature requires retrieval.
+    #
+    # Categories (each regex non-overlapping with HIGH):
+    #   - author stance: 用户问「作者对 X 持什么态度」/「你怎么看」类
+    #     (golden-004-docx-zh "作者对'通话膨胀'持什么态度")
+    #   - concept extraction: 用户问「核心概念」/「中心思想」(doc-only)
+    #   - personal-finance doc reference: 「预算是多少」/「实际花了多少」
+    #     (golden-007-xlsx-budget-zh) — training knowledge doesn't have
+    #     user's personal monthly budget
+    #   - explicit doc reference: 「这篇 / 本文 / 该文 / 这份文档」
+    r"态度|看法|观点|立场|评价|意见|思考|感想",
+    r"核心概念|核心观点|中心思想|主题思想|核心内容|主要内容|核心思想",
+    r"预算|收支|花费|支出|开支|消费|账单",
+    r"这篇|这一篇|本文|该文|这篇文章|这份文件|这份文档",
     # English
     r"\bwhy\b|\bhow\s+to\b|\bexplain\b|\banalyze\b|\banalyse\b|\bcompare\b|\bdifference\b|\bhistory\s+of\b",
 )
@@ -460,7 +478,10 @@ async def intent_analysis(
             return
 
     is_simple_fact, _ = _query_is_simple_fact(query)
-    if is_simple_fact and not needs_time:
+    # v2.0.32.8 — multi-turn guard (eval harness golden-009 turn 2).
+    prior_user_turn_count = sum(1 for m in state.get("messages", []) if isinstance(m, HumanMessage))
+    is_multi_turn = prior_user_turn_count > 1
+    if is_simple_fact and not needs_time and not is_multi_turn:
         yield (
             "intent",
             {"intent_value": "simple_fact", "corrected_query": None},

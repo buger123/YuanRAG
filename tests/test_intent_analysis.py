@@ -233,3 +233,146 @@ async def test_intent_analysis_summary_no_llm():
     assert mock_build.call_count == 0
     assert delta["intent"] == "summary"
     assert delta["needs_current_time"] is False
+
+
+# ---------------------------------------------------------------------------
+# v2.0.32.8 (Stage 5.8 follow-up, 2026-10-07) — eval-found doc-query
+# misroutes. The simple_fact fast-path was too eager: 3 eval cases
+# (golden-004-docx / golden-007-xlsx / golden-009 multi-turn turn 2)
+# contain a definitional surface ("是什么" / "多少") but require doc
+# retrieval. Extending `_SIMPLE_FACT_NEGATIVE_PATTERNS` + multi-turn
+# guard routes these to qa_complex (ReAct + tools bound).
+# ---------------------------------------------------------------------------
+
+
+def test_simple_fact_negative_blocks_author_stance():
+    """golden-004-docx-zh — "作者对 X 持什么态度" must NOT be simple_fact."""
+    from src.agent.nodes.intent_analysis import _query_is_simple_fact
+
+    for q in (
+        "这篇作文讨论的核心概念是什么?作者对'通话膨胀'持什么态度?",
+        "作者对气候变化的看法是什么?",
+        "你的立场是什么?",  # NEW: also catches "立场"
+        "这篇论文的核心观点是什么?",
+    ):
+        ok, _ = _query_is_simple_fact(q)
+        assert not ok, f"expected NOT simple_fact for {q!r}"
+
+
+def test_simple_fact_negative_blocks_personal_finance_doc():
+    """golden-007-xlsx-budget-zh — personal budget / spending queries
+    must NOT be simple_fact (training knowledge can't answer
+    "what's MY August food budget")."""
+    from src.agent.nodes.intent_analysis import _query_is_simple_fact
+
+    for q in (
+        "我8月份餐饮预算是多少?实际花了多少?",
+        "这个月预算还剩多少?",
+        "本月开支总共多少?",
+        "实际花费和预算差多少?",
+    ):
+        ok, _ = _query_is_simple_fact(q)
+        assert not ok, f"expected NOT simple_fact for {q!r}"
+
+
+def test_simple_fact_negative_blocks_explicit_doc_reference():
+    """Single-turn doc-reference ("这篇 / 本文 / 这份文档") must NOT
+    be simple_fact (the answer is in the user's uploaded doc, not
+    training knowledge)."""
+    from src.agent.nodes.intent_analysis import _query_is_simple_fact
+
+    for q in (
+        "这篇文档讨论了什么?",
+        "本文的核心观点是什么?",
+        "这份文件的作者是谁?",
+    ):
+        ok, _ = _query_is_simple_fact(q)
+        assert not ok, f"expected NOT simple_fact for {q!r}"
+
+
+def test_simple_fact_negative_no_regression_on_existing_positives():
+    """Guard: the new NEGATIVE patterns must not flip existing
+    simple_fact positives. Per test_v2_0_5_bugfixes.py pin list."""
+    from src.agent.nodes.intent_analysis import _query_is_simple_fact
+
+    for q in (
+        "光速是多少",  # 多少 without personal-finance keyword
+        "什么是 RAG",  # 什么 without stance/concept/doc-ref
+        "HTTP 是什么缩写",
+        "水的化学式是什么",
+        "what is the capital of France",
+        "how many planets are there",
+        "what's HTTP",
+    ):
+        ok, _ = _query_is_simple_fact(q)
+        assert ok, f"regression: expected simple_fact for {q!r}"
+
+
+@pytest.mark.asyncio
+async def test_intent_analysis_multi_turn_guard_skips_simple_fact():
+    """golden-009-multi-turn-zh turn 2 — "那腾讯音乐发债多少钱?"
+    must NOT route to simple_fact in multi-turn context, even though
+    the regex matches "多少钱" as HIGH. The follow-up needs retrieval
+    context from the prior turn (which retrieved 1.txt chunks)."""
+    from langchain_core.messages import AIMessage, HumanMessage
+    from src.agent.nodes.intent_analysis import intent_analysis
+    from unittest.mock import patch
+
+    # Multi-turn state: turn 1 = HumanMessage + AIMessage, turn 2 = HumanMessage
+    state = {
+        "current_query": "那腾讯音乐发债多少钱?",
+        "messages": [
+            HumanMessage(content="王者荣耀发生了什么事?"),
+            AIMessage(content="王者荣耀 ... 高校认证 ..."),
+            HumanMessage(content="那腾讯音乐发债多少钱?"),
+        ],
+    }
+    delta: dict = {}
+    # Cheap-model mock — should NOT be called because multi-turn guard
+    # forces fall-through to qa_complex (which IS the cheap-model LLM
+    # call). We patch it to capture the call; if the guard works the
+    # call IS made (qa_complex path) and `intent` ends up qa_complex.
+    with patch("src.agent.nodes.intent_analysis.build_cheap_model") as mock_build:
+        from src.llm.schemas import IntentDecision
+        from unittest.mock import AsyncMock
+
+        mock_model = AsyncMock()
+        mock_model.ainvoke = AsyncMock(return_value=IntentDecision(
+            intent="qa_complex",
+            corrected_query=None,
+            needs_current_time=False,
+        ))
+        mock_build.return_value = mock_model
+        async for kind, payload in intent_analysis(state):
+            if kind == "__delta__":
+                delta = payload
+                break
+
+    # qa_complex reached (not simple_fact), confirming multi-turn guard fired
+    assert delta["intent"] == "qa_complex", (
+        f"multi-turn guard should force qa_complex; got {delta['intent']!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_intent_analysis_single_turn_still_simple_facts():
+    """Guard: multi-turn guard must NOT block first-turn simple_fact
+    routing. "光速是多少" with only one HumanMessage → still simple_fact."""
+    from langchain_core.messages import HumanMessage
+    from src.agent.nodes.intent_analysis import intent_analysis
+    from unittest.mock import patch
+
+    state = {
+        "current_query": "光速是多少",
+        "messages": [HumanMessage(content="光速是多少")],
+    }
+    delta: dict = {}
+    with patch("src.agent.nodes.intent_analysis.build_cheap_model") as mock_build:
+        async for kind, payload in intent_analysis(state):
+            if kind == "__delta__":
+                delta = payload
+                break
+
+    # Simple_fact fast-path: NO LLM call (mock_build.call_count == 0)
+    assert mock_build.call_count == 0
+    assert delta["intent"] == "simple_fact"

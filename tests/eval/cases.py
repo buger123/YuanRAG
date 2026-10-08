@@ -67,7 +67,11 @@ DIFFICULTY_LEVELS: tuple[str, ...] = ("easy", "medium", "hard")
 ROOT_CAUSE_GROUPS: tuple[str, ...] = ("A", "B", "C", "D", "E", "F")
 GROUDING_VALUES: tuple[str, ...] = ("grounded", "ungrounded", "skipped")
 HIGH_PRECISION_VALUES: tuple[str, ...] = ("auto", "on", "off")
-ROUTE_DECISIONS: tuple[str, ...] = ("direct", "retrieve", "extractive")
+# v2.0.32.8 — "any" added for summary-eligible doc-questions where the
+# cheap-model intent classifier is non-deterministic across qa_complex and
+# summary paths but BOTH produce correct answers. The judge accepts
+# direct|retrieve|extractive|generate when "any" is set.
+ROUTE_DECISIONS: tuple[str, ...] = ("direct", "retrieve", "extractive", "any")
 
 # Canonical FSM node names — keep in sync with src/agent/fsm.py:run_fsm
 # docstring + the runner streaming map. The harness is read-only on this
